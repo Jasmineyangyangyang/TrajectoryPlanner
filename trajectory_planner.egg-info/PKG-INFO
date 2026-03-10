@@ -1,0 +1,8 @@
+Metadata-Version: 2.1
+Name: trajectory-planner
+Version: 0.1.0
+Summary: Quintic polynomial trajectory planner and Stanley controller
+Author: YANG JIAXIN
+License: MIT
+Requires-Python: >=3.8
+License-File: LICENSE
