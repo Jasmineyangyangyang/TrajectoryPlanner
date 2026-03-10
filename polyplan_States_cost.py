@@ -20,6 +20,7 @@ for subdir in current_dir.iterdir():
 from CubicSpline import cubic_spline_planner
 from global_road import natural_road_load
 from scipy.ndimage import gaussian_filter1d 
+import time
 
 """
 单车道宽度：3.75m
@@ -39,7 +40,7 @@ MAX_ROAD_WIDTH = round(road_width/2 - vehicle_width/2 - offset_buffer, 2)  # max
 D_ROAD_W = 0.2  # road width sampling length [m]
 DT = 0.3  # firts searching time tick [s]
 # DT_best_path = 0.1  # best path searching time tick [s]
-DT_best_path = 0.02  # best path searching time tick [s]
+DT_best_path = 0.01  # best path searching time tick [s]
 PLAN_T = 5.0  # max prediction time [m]
 D_T_S = 5.0 / 3.6  # target speed sampling length [m/s]
 N_S_SAMPLE = 2  # sampling number of target speed
@@ -61,6 +62,16 @@ K_LON = K_LAT
 LATERAL_BIAS_MODE = "left_right_by_KT"
 LATERAL_BIAS_GAIN = 1.0
 CURVATURE_SIGN_EPS = 1e-6
+
+def _as_scalar(x):
+    """
+    Ensure numeric inputs are Python floats.
+    Accepts Python numbers or numpy scalars/size-1 arrays.
+    """
+    x_arr = np.asarray(x)
+    if x_arr.size != 1:
+        raise ValueError(f"Expected scalar, got shape={x_arr.shape}")
+    return float(x_arr.reshape(()))
 
 class QuarticPolynomial:
 
@@ -468,6 +479,14 @@ class Polyplanner():
         优化后的笛卡尔到Frenet坐标转换。
         通过最近点附近的线性插值/局部搜索寻找精确投影位置。
         """
+        # ---- Type unification: force all inputs to scalar floats ----
+        x = _as_scalar(x)
+        y = _as_scalar(y)
+        theta = _as_scalar(theta)
+        v = _as_scalar(v)
+        a = _as_scalar(a)
+        kappa = _as_scalar(kappa)
+
         # 1. 粗寻：找到最近的离散参考点索引
         distances = np.sqrt((self.ref_x - x)**2 + (self.ref_y - y)**2)
         idx = np.argmin(distances)
@@ -526,6 +545,9 @@ class Polyplanner():
         # psi_r = float(np.interp(s, self.ref_s, self.ref_psi))
         s_mod = s % self.ref_s[-1]
         kappa_r = self.csp.calc_curvature(s_mod)
+        if kappa_r is None:
+            kappa_r = 0.0
+        kappa_r = float(kappa_r)
         
         # # 利用高斯平滑后的曲率计算 kappa_prime 【导致s_ddot误差约1.5，太大】
         # kappa_rp = float(np.interp(s_mod, self.ref_s, self.ref_dkappa_ds))
@@ -535,25 +557,25 @@ class Polyplanner():
         ds = 1e-3
         k_plus = self.csp.calc_curvature((s + ds) % self.ref_s[-1])
         k_minus = self.csp.calc_curvature((s - ds) % self.ref_s[-1])
-        kappa_rp = (k_plus - k_minus) / (2 * ds)
+        k_plus = 0.0 if k_plus is None else float(k_plus)
+        k_minus = 0.0 if k_minus is None else float(k_minus)
+        kappa_rp = (k_plus - k_minus) / (2.0 * ds)
 
         # 4. 计算 Frenet 状态量
         t_r = np.array([math.cos(psi_r), math.sin(psi_r)])
         n_r = np.array([-math.sin(psi_r), math.cos(psi_r)])
-        v_rel = np.array([x - xr, y - yr]).squeeze()
+        v_rel = np.array([x - float(xr), y - float(yr)])
 
-        l = np.array([float(np.dot(v_rel, n_r))])  # 精确的侧向距离
+        l = float(np.dot(v_rel, n_r))  # 精确的侧向距离（标量）
         
         # 这里的 q1 = 1 - kappa_r * l 是转换的核心系数
         q1 = 1.0 - kappa_r * l
         if abs(q1) < 1e-3:
             q1 = np.sign(q1)*1e-3 # 防止在极小转弯半径下出现奇点
         # 航向角偏差
-        delta_psi = np.arctan2(math.sin(theta - psi_r), math.cos(theta - psi_r))
+        delta_psi = math.atan2(math.sin(theta - float(psi_r)), math.cos(theta - float(psi_r)))
         
         # 速度分量转换
-        v = np.array([v])
-        theta = np.array(theta)
         s_dot = v * math.cos(delta_psi) / q1
         l_dot = v * math.sin(delta_psi)
 
@@ -569,7 +591,7 @@ class Polyplanner():
         s_ddot = (a_t_r + kappa_rp * l * s_dot ** 2 + 2.0 * kappa_r * s_dot * l_dot) / q1
         l_ddot = a_n_r - q1 * kappa_r * s_dot ** 2
 
-        return s, l, s_dot, l_dot, s_ddot, l_ddot
+        return float(s), float(l), float(s_dot), float(l_dot), float(s_ddot), float(l_ddot)
 
     def calculate_frenet_coordinates(self, x, y, yaw, speed, kappa=0.0, a=0.0):
         """
@@ -577,11 +599,18 @@ class Polyplanner():
         直接可以作为多项式规划的初始 Frenet 状态。
         有 yaw_rate 时可用：kappa = curvature_from_yaw_rate(yaw_rate, speed)。
         """
+        x = _as_scalar(x)
+        y = _as_scalar(y)
+        yaw = _as_scalar(yaw)
+        speed = _as_scalar(speed)
+        kappa = _as_scalar(kappa)
+        a = _as_scalar(a)
+
         # 有 yaw_rate 时：kappa = curvature_from_yaw_rate(yaw_rate, speed)，再传入
         s, l, s_dot, l_dot, s_ddot, l_ddot = self.cartesian_to_frenet_state(
             x, y, yaw, speed, a, kappa=kappa
         )
-        return s, s_dot, s_ddot, l, l_dot, l_ddot # s0, c_speed, c_accel, c_d, c_d_d, c_d_dd 
+        return float(s), float(s_dot), float(s_ddot), float(l), float(l_dot), float(l_ddot) # s0, c_speed, c_accel, c_d, c_d_d, c_d_dd 
 
     def calc_global_paths(self, fp, csp):
         # calc global positions
@@ -641,6 +670,14 @@ class Polyplanner():
         return fp
 
     def frenet_optimal_planning(self, csp, s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot, planner_param, target_speed, ob):
+        s0 = _as_scalar(s0)
+        s0_dot = _as_scalar(s0_dot)
+        s0_ddot = _as_scalar(s0_ddot)
+        l0 = _as_scalar(l0)
+        l0_dot = _as_scalar(l0_dot)
+        l0_ddot = _as_scalar(l0_ddot)
+        target_speed = _as_scalar(target_speed)
+
         fplist = calc_frenet_paths(csp, s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot, planner_param, target_speed)
         # fplist_ok_ind = check_paths(fplist, ob)  # check maximum speed, accel, curvature, collision
         # fplist = [fplist[i] for i in fplist_ok_ind]
@@ -669,9 +706,17 @@ class Polyplanner():
         - ego_yaw：车辆航向（若无则传 None，用参考线朝向近似）
         - ego_kappa：车辆曲率。有 yaw_rate 时可用 curvature_from_yaw_rate(ego_yaw_rate, ego_speed)
         """
+        ego_x = _as_scalar(ego_x)
+        ego_y = _as_scalar(ego_y)
+        ego_speed = _as_scalar(ego_speed)
+        ego_a = _as_scalar(ego_a)
+        ego_kappa = _as_scalar(ego_kappa)
+        target_speed = _as_scalar(target_speed)
+
         if ego_yaw is None:
             nearest_index = self.find_nearest_point(ego_x, ego_y)
             ego_yaw = self.tyaw[nearest_index]
+        ego_yaw = _as_scalar(ego_yaw)
 
         s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot  = self.calculate_frenet_coordinates(
             ego_x, ego_y, ego_yaw, ego_speed, ego_kappa, ego_a
@@ -832,9 +877,11 @@ class Polyplanner():
             planner_param = param
             # path = self.poly_trajectory(ego_x, ego_y, ego_speed, ob)
             # NOTE:path = self.poly_trajectory(ego_x, ego_y, ego_speed, planner_param, target_speed, ob)
+            start = time.time()
             path = self.poly_trajectory(ego_x, ego_y, ego_speed, planner_param, target_speed,
                                         ob, ego_yaw=ego_yaw, ego_a=ego_a, ego_kappa=ego_kappa)
-                    
+            end = time.time()
+            print(f"Planning time: {(end - start)*1000:.2f} ms")     
             ego_x = path.x[1]
             ego_y = path.y[1]
             ego_yaw = path.yaw[1]
@@ -908,12 +955,12 @@ class Polyplanner():
 
         # 4. 误差对比
         results = {
-            "s": (test_fp.s[0], res_s[0]),
-            "l": (test_fp.l[0], res_l[0]),
-            "s_dot": (test_fp.s_dot[0], res_s_dot[0]),
-            "l_dot": (test_fp.l_dot[0], res_l_dot[0]),
-            "s_ddot": (test_fp.s_ddot[0], res_s_ddot[0]),
-            "l_ddot": (test_fp.l_ddot[0], res_l_ddot[0])
+            "s": (test_fp.s[0], res_s),
+            "l": (test_fp.l[0], res_l),
+            "s_dot": (test_fp.s_dot[0], res_s_dot),
+            "l_dot": (test_fp.l_dot[0], res_l_dot),
+            "s_ddot": (test_fp.s_ddot[0], res_s_ddot),
+            "l_ddot": (test_fp.l_ddot[0], res_l_ddot)
         }
 
         print(f"{'变量':<10} | {'预期值':<10} | {'实际值':<10} | {'误差':<10}")
@@ -931,8 +978,8 @@ class Polyplanner():
 if __name__ == '__main__':
     env_data = natural_road_load()
     planner = Polyplanner(env_data, lane_id=1)
-    planner.test_frenet_conversion_consistency()
+    # planner.test_frenet_conversion_consistency()
     # planner.debug_sim_frenet_plan_global()
-    # planner.debug_sim_frenet_plan_frenet()
+    planner.debug_sim_frenet_plan_frenet()
 
 

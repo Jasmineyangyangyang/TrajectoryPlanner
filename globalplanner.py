@@ -63,26 +63,37 @@ class GlobalPlanner():
         if area < 1e-6:
             return 0.0
 
-        curvature = 4 * area / (a * b * c)
+        # 使用向量叉乘判断转向方向
+        # 向量1: P1 -> P2, 向量2: P2 -> P3
+        cross_product = (x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2)
+        sign = 1.0 if cross_product >= 0 else -1.0
+
+        # 乘以方向符号
+        curvature = sign * (4 * area / (a * b * c))
 
         return curvature
 
     def stanley_controller(self, ego_x, ego_y, ego_yaw, ego_speed, path, wheelBase=2.6):
-        front_x = ego_x + wheelBase / 2 * np.cos(ego_yaw)
-        front_y = ego_y + wheelBase / 2 * np.sin(ego_yaw)
+        """
+        规划器给的path是质心位置的ego pose，
+        运动学模型为后轴中心，所以需要计算前轴位置；
+        台架试验是动力学模型，ego pose为质心，front_x = ego_x + wheelBase / 2 * np.cos(ego_yaw)
+        """
+        front_x = ego_x + wheelBase * np.cos(ego_yaw)  
+        front_y = ego_y + wheelBase * np.sin(ego_yaw)
         currentIndex = 0
         road_len = len(path.x)
-        numofpoints = 16  # 用于Stanley控制器的前后预瞄点数量,用来计算平均道路曲率和航向角，不平均信号会抖动
+        # numofpoints = 1  # 用于Stanley控制器的前后预瞄点数量,用来计算平均道路曲率和航向角，不平均信号会抖动
+        lookahead_dist = 2.0  # 前瞄距离，用于计算前瞄点的索引，进而计算曲率
         # stanley_diffyaw_k = 1.5
         # stanley_ey_k = 10.0
         # stanley_curvature_k = 1.0
         # stanley_diffy_k = 2.65
 
-        # stanley_diffyaw_k = 1.0
-        # stanley_ey_k = 5.5
         stanley_diffyaw_k = 1.0
         stanley_ey_k = 5.5
-        stanley_curvature_k = 0.855 * -1 #0.31 右转为负，左转为正
+        stanley_curvature_k = 0.0  #0.31 右转为负，左转为正
+        # stanley_curvature_k = 1.0  #0.31 右转为负，左转为正
         stanley_diffy_k = 1.65
         
 
@@ -93,18 +104,19 @@ class GlobalPlanner():
         # find nearest point index
         currentIndex = self.find_nearest_point(front_x, front_y, path)
         # currentIndex = self.find_lookahead_point(front_x, front_y, path, 5.0)
-        frontIndex = min(currentIndex + numofpoints, road_len - 1)
-        rearIndex = max(currentIndex - numofpoints, 0)
-        psi_front = self.pi_2_pi(np.arctan2(path.y[frontIndex] - path.y[currentIndex], path.x[frontIndex] - path.x[currentIndex]))
-        psi_rear = self.pi_2_pi(np.arctan2(path.y[currentIndex] - path.y[rearIndex], path.x[currentIndex] - path.x[rearIndex]))
-        distFront = np.sqrt((path.x[currentIndex] - path.x[frontIndex])**2 + (path.y[currentIndex] - path.y[frontIndex])**2)
-        distRear = np.sqrt((path.x[currentIndex] - path.x[rearIndex])**2 + (path.y[currentIndex]- path.y[rearIndex])**2)
+        # frontIndex = min(currentIndex + numofpoints, road_len - 1)
+        # rearIndex = max(currentIndex - numofpoints, 0)
+        # psi_front = self.pi_2_pi(np.arctan2(path.y[frontIndex] - path.y[currentIndex], path.x[frontIndex] - path.x[currentIndex]))
+        # psi_rear = self.pi_2_pi(np.arctan2(path.y[currentIndex] - path.y[rearIndex], path.x[currentIndex] - path.x[rearIndex]))
+        # distFront = np.sqrt((path.x[currentIndex] - path.x[frontIndex])**2 + (path.y[currentIndex] - path.y[frontIndex])**2)
+        # distRear = np.sqrt((path.x[currentIndex] - path.x[rearIndex])**2 + (path.y[currentIndex]- path.y[rearIndex])**2)
 
-        distRearFront = np.sqrt((path.x[frontIndex] - path.x[rearIndex])**2 + (path.y[frontIndex] - path.y[rearIndex])**2)
-        rearFront = [path.x[frontIndex]-path.x[rearIndex], path.y[frontIndex]-path.y[rearIndex]]
-        egoFront = [path.x[frontIndex] - front_x, path.y[frontIndex] - front_y]
-        coefFront = 0.25*(egoFront[0]*rearFront[0] + egoFront[1]*rearFront[1]) / (distRearFront**2)
-        roadpsi = coefFront * psi_rear + (1 - coefFront) * psi_front
+        # distRearFront = np.sqrt((path.x[frontIndex] - path.x[rearIndex])**2 + (path.y[frontIndex] - path.y[rearIndex])**2)
+        # rearFront = [path.x[frontIndex]-path.x[rearIndex], path.y[frontIndex]-path.y[rearIndex]]
+        # egoFront = [path.x[frontIndex] - front_x, path.y[frontIndex] - front_y]
+        # coefFront = 0.25*(egoFront[0]*rearFront[0] + egoFront[1]*rearFront[1]) / (distRearFront**2)
+        # roadpsi = coefFront * psi_rear + (1 - coefFront) * psi_front
+        roadpsi = path.yaw[currentIndex]
         roadpsi = self.pi_2_pi(roadpsi)
 
         if currentIndex + 1 >= len(path.x):
@@ -121,14 +133,18 @@ class GlobalPlanner():
         #     curvature = (psi_front - psi_rear) / (distFront + distRear)
 
         if len(path.c) > 0:
-            curvature = path.c[frontIndex]
+            curvature = path.c[currentIndex]
         else:
-            i_prev = max(frontIndex - 1, 0)
-            i_next = min(frontIndex + 1, road_len - 1)
+            # 全局路段：往前后各找 2 米的索引
+            frontIndex = self.find_lookahead_point(path.x[currentIndex], path.y[currentIndex], path, lookahead_dist)
+            # 因为你没有写向后找的函数，可以直接用对称的索引差，或者更严谨点也写个 find_lookbehind_point
+            index_diff = frontIndex - currentIndex
+            rearIndex = max(currentIndex - index_diff, 0)
+            
             curvature = self.calc_curvature(
-                path.x[i_prev], path.y[i_prev],
-                path.x[frontIndex], path.y[frontIndex],
-                path.x[i_next], path.y[i_next]
+                path.x[rearIndex], path.y[rearIndex],
+                path.x[currentIndex], path.y[currentIndex],
+                path.x[frontIndex], path.y[frontIndex]
             )
 
         psi_diff = self.calrealpsi(roadpsi, ego_yaw)
@@ -194,7 +210,9 @@ class GlobalPlanner():
     
     def kinematics_model(self, x, y, yaw, v, 
                         steer, a, wheelBase=2.6, delta_t=0.01):
-        # motion model
+        """
+        motion model: rear-wheel drive kinematic model
+        """
         old_state = np.array([float(x), float(y), float(yaw)])
         v = float(v)
         steer = float(steer)
@@ -282,13 +300,14 @@ class GlobalPlanner():
         ego_x, ego_y, ego_yaw, ego_speed
         (402.1652903166725, -243.412617909122, 0.025934149601362703, 11.11111111111111)
         """
-        # 试验起点
-        ego_x = 456.56
-        ego_y = -345.93
-        ego_speed = 30.0 / 3.6  # current speed [m/s]
-        ego_yaw = 2.79 # rad
-        ego_a = 0.0
-        ego_kappa = 0.0
+        # # 试验起点
+        # ego_x = 456.56
+        # ego_y = -345.93
+        # ego_speed = 30.0 / 3.6  # current speed [m/s]
+        # ego_yaw = 2.79 # rad
+        # ego_a = 0.0
+        # ego_kappa = 0.0
+
         # # 定曲率弯道起点
         # ego_x = 381.03
         # ego_y = -318.5
@@ -296,7 +315,8 @@ class GlobalPlanner():
         # ego_yaw = 2.79 # rad
         # ego_a = 0.0
         # ego_kappa = 0.0
-        # # 试验弯道起点
+
+        # # 试验弯道起点 tx[0]
         # ego_x = 402.1653
         # ego_y = -243.4126
         # ego_speed = 35.0 / 3.6  # current speed [m/s]
@@ -304,12 +324,13 @@ class GlobalPlanner():
         # ego_a = 0.0
         # ego_kappa = 0.0
 
-        # ego_x = 429.987
-        # ego_y = -242.693
-        # ego_speed = 35.0 / 3.6  # current speed [m/s]
-        # ego_yaw = 0.0259 # rad
-        # ego_a = 0.0
-        # ego_kappa = 0.0
+        # 试验弯道终点 tx[375]本来是idx=380，往前一点
+        ego_x = 569.332
+        ego_y = -303.477
+        ego_speed = 35.0 / 3.6  # current speed [m/s]
+        ego_yaw = -0.724 # rad
+        ego_a = 0.0
+        ego_kappa = 0.0
 
         plan_ego_x = ego_x
         plan_ego_y = ego_y
@@ -335,7 +356,7 @@ class GlobalPlanner():
             ax0.plot(self.road[:,2], self.road[:,3], 'b')
             ax0.plot(self.road[:,4], self.road[:,5], 'b')
             ax0.plot(self.polyplanner.tx, self.polyplanner.ty, 'b--')
-            ax0.plot(ego_x, ego_y,'r.')
+            ax0.plot(ego_x, ego_y,'b.')
             ax0.set_xlabel("X[m]")
             ax0.set_ylabel("Y[m]")
 
@@ -356,6 +377,7 @@ class GlobalPlanner():
             ax1.grid(True)
 
             ax2.cla()
+            ax2.plot(0, ego_speed, marker='.', color='b')
             ax2.set_ylim(5,30)
             ax2.set_xlabel("Step")
             ax2.set_ylabel("Speed[m/s]")
@@ -365,9 +387,10 @@ class GlobalPlanner():
         # simulation parameters
         plan_dt = 0.1      # 10 Hz
         control_dt = 0.01  # 100 Hz
+        poly_dt = 0.01     # NOTE check that polyplanner内部点与点间隔0.01秒
         plan_steps = int(plan_dt / control_dt) # 10
         road_refresh_steps = plan_steps - 2
-        sim_time = 300.0 # 5 minutes
+        sim_time = 70.0 # 5 minutes
         control_steps = int(sim_time / control_dt)
         
         # ===== 统计变量 =====
@@ -381,24 +404,37 @@ class GlobalPlanner():
             # 10 Hz 规划
             # ======================
             if step % plan_steps == 0:
-                plan_time += 1
                 current_trigger = self.env_data.curve_in_check(ego_x, ego_y)
                 if current_trigger:
-                    if last_path is not None and len(last_path.x) > plan_steps:
-                    # 选取上一帧轨迹中对应当前时间往后 100ms 的点 (即索引为 plan_steps 的点)
-                    # 这样做保证了新轨迹的起点 [s0, v0, a0] 与旧轨迹完全重合
-                        idx = plan_steps  # 每个点0.02，正好是五个点对应一个控制周期的间隔
+                    if plan_time == 0:
+                        plan_ego_x = ego_x
+                        plan_ego_y = ego_y
+                        plan_ego_yaw = ego_yaw
+                        plan_ego_speed = ego_speed
+                        plan_ego_a = ego_a
+                        plan_ego_kappa = ego_kappa
+                    elif last_path is not None and len(last_path.x) > plan_steps:
+                    # 选取上一帧轨迹中起始时间往后 0.1s 的点，因为规划周期0.1s
+                    # polyplanner内部点与点间隔0.01秒，所以对应索引为 0.1/0.01 = 10，即 plan_steps
+                        idx = int(plan_dt / poly_dt)  
                         plan_ego_x = last_path.x[idx]
                         plan_ego_y = last_path.y[idx]
                         plan_ego_yaw = last_path.yaw[idx]
                         plan_ego_speed = last_path.speed[idx]
                         plan_ego_a = last_path.a[idx]
                         plan_ego_kappa = last_path.c[idx]
-                        ax0.plot(plan_ego_x, plan_ego_y, 'c.')
-                        ax0.plot(ref_path.x, ref_path.y,'k.')
-
+                        if np.hypot(plan_ego_x - ego_x, plan_ego_y - ego_y) > 0.5:
+                            print("Warning: planned point is far from actual position, using current state for planning")
+                            plan_ego_x = ego_x
+                            plan_ego_y = ego_y
+                            plan_ego_yaw = ego_yaw
+                            plan_ego_speed = ego_speed
+                            plan_ego_a = ego_a
+                            plan_ego_kappa = ego_kappa
+                            
                 # 出弯瞬间生成过渡轨迹
                 if self.prev_trigger and not current_trigger:
+                    plan_ego_x = ego_x
                     plan_ego_y = ego_y
                     plan_ego_yaw = ego_yaw
                     plan_ego_speed = ego_speed
@@ -411,28 +447,28 @@ class GlobalPlanner():
                 
                 if path_transition is None:
                     path = self.generate_trajectory(plan_ego_x, plan_ego_y, plan_ego_speed, plan_ego_yaw, plan_ego_a, plan_ego_kappa, current_trigger, self.planner_param_init)
+                    if current_trigger:
+                        plan_time += 1
+                        # 更新 last_path 供下一轮使用
+                        last_path = copy.deepcopy(path)
                     # plt.figure(0)
                     # plt.plot(path.x, path.y, marker='.', markersize=2, color='lightgray')
                 
-                ref_path = path_transition if path_transition else path
-                # 更新 last_path 供下一轮使用
-                last_path = copy.deepcopy(ref_path)
+                ref_path = copy.deepcopy(path_transition) if path_transition else copy.deepcopy(path)
 
                 if self.show_animation:
-                    ax2.plot(step + np.arange(len(path.speed)), path.speed, color='b')
+                    ax2.plot(step + np.arange(len(ref_path.speed)), ref_path.speed, color='b')
 
                 self.prev_trigger = current_trigger
 
-            if (not current_trigger) and step % road_refresh_steps == 0:
-                    plan_ego_x = ego_x  
-                    plan_ego_y = ego_y
-                    plan_ego_yaw = ego_yaw
-                    plan_ego_speed = ego_speed
-                    plan_ego_a = ego_a
-                    plan_ego_kappa = ego_kappa
-                # ax0.plot(plan_ego_x, plan_ego_y, 'c.')
-                # ax0.plot(ref_path.x, ref_path.y,'k.')
-                
+            # if (not current_trigger) and step % road_refresh_steps == 0:
+            if not current_trigger:
+                plan_ego_x = ego_x  
+                plan_ego_y = ego_y
+                plan_ego_yaw = ego_yaw
+                plan_ego_speed = ego_speed
+                plan_ego_a = ego_a
+                plan_ego_kappa = ego_kappa
 
             # ======================
             # 100 Hz 控制
@@ -451,6 +487,7 @@ class GlobalPlanner():
                 # 方法2.更新加速度、kappa：始终用参考路径在当前位置的曲率，与 else 分支一致
                 # ======================
                 ego_a = (ego_speed - prev_speed) / control_dt
+                # ego_a = 0.0
                 # # 方法1
                 # ego_kappa = np.tan(st_angle) / 2.6      # wheelBase = 2.6
                 # 方法2
@@ -465,10 +502,10 @@ class GlobalPlanner():
                 if len(path_test.c) > 0:
                     nearest_idx = min(nearest_idx, len(path_test.c) - 1)
                     ego_kappa = path_test.c[nearest_idx]
-                    if current_trigger:
-                        ego_yaw = float(path_test.yaw[nearest_idx])
-                        ego_x = float(path_test.x[nearest_idx])
-                        ego_y = float(path_test.y[nearest_idx])
+                    # if current_trigger:
+                    #     ego_yaw = float(path_test.yaw[nearest_idx])
+                    #     ego_x = float(path_test.x[nearest_idx])
+                    #     ego_y = float(path_test.y[nearest_idx])
                     print("ref kappa = ", self.polyplanner.tc[nearest_idx])
                     print("ref yaw = ", self.polyplanner.tyaw[nearest_idx])
                 else:
@@ -486,8 +523,15 @@ class GlobalPlanner():
             # ====================
             # Frenet 误差计算
             # ====================
-            ego_s, ego_s_dot, ego_s_ddot, ego_l, ego_l_dot, ego_l_ddot = self.polyplanner.calculate_frenet_coordinates(ego_x, ego_y, ego_yaw, ego_speed, ego_kappa, ego_a)
-            lateral_error_list.append(ego_l)
+            # ego_s, ego_s_dot, ego_s_ddot, ego_l, ego_l_dot, ego_l_ddot = self.polyplanner.calculate_frenet_coordinates(ego_x, ego_y, ego_yaw, ego_speed, ego_kappa, ego_a)
+            # lateral_error_list.append(ego_l)
+            # yaw_error_list.append(psi_diff)
+            # speed_error_list.append(ego_speed - target_v)
+            wheelBase = 2.6
+            front_x = ego_x + wheelBase * np.cos(ego_yaw)  
+            front_y = ego_y + wheelBase * np.sin(ego_yaw)
+            front_ego_s, front_ego_s_dot, front_ego_s_ddot, front_ego_l, front_ego_l_dot, front_ego_l_ddot = self.polyplanner.calculate_frenet_coordinates(front_x, front_y, ego_yaw, ego_speed, ego_kappa, ego_a)
+            lateral_error_list.append(front_ego_l)
             yaw_error_list.append(psi_diff)
             speed_error_list.append(ego_speed - target_v)
 
@@ -498,7 +542,8 @@ class GlobalPlanner():
                     path_transition = None
 
             if self.show_animation:
-                ax1.plot(ego_s, ego_l, marker='.', color='r')
+                # ax1.plot(ego_s, ego_l, marker='.', color='r')
+                ax1.plot(front_ego_s, front_ego_l, marker='.', color='g')
                 ax2.plot(step, ego_speed, marker='.', color='r')
                 ax0.plot(ego_x, ego_y, marker='.', color='r')
                 ax0.set_title("v[km/h]:" + str(ego_speed * 3.6)[0:4])

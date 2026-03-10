@@ -20,6 +20,7 @@ for subdir in current_dir.iterdir():
 from CubicSpline import cubic_spline_planner
 from global_road import natural_road_load
 from scipy.ndimage import gaussian_filter1d 
+import time
 
 """
 单车道宽度：3.75m
@@ -39,7 +40,7 @@ MAX_ROAD_WIDTH = round(road_width/2 - vehicle_width/2 - offset_buffer, 2)  # max
 D_ROAD_W = 0.2  # road width sampling length [m]
 DT = 0.3  # firts searching time tick [s]
 # DT_best_path = 0.1  # best path searching time tick [s]
-DT_best_path = 0.02  # best path searching time tick [s]
+DT_best_path = 0.01  # best path searching time tick [s]
 PLAN_T = 5.0  # max prediction time [m]
 D_T_S = 5.0 / 3.6  # target speed sampling length [m/s]
 N_S_SAMPLE = 2  # sampling number of target speed
@@ -876,9 +877,11 @@ class Polyplanner():
             planner_param = param
             # path = self.poly_trajectory(ego_x, ego_y, ego_speed, ob)
             # NOTE:path = self.poly_trajectory(ego_x, ego_y, ego_speed, planner_param, target_speed, ob)
+            start = time.time()
             path = self.poly_trajectory(ego_x, ego_y, ego_speed, planner_param, target_speed,
                                         ob, ego_yaw=ego_yaw, ego_a=ego_a, ego_kappa=ego_kappa)
-                    
+            end = time.time()
+            print(f"Planning time: {(end - start)*1000:.2f} ms")     
             ego_x = path.x[1]
             ego_y = path.y[1]
             ego_yaw = path.yaw[1]
@@ -975,8 +978,8 @@ class Polyplanner():
 if __name__ == '__main__':
     env_data = natural_road_load()
     planner = Polyplanner(env_data, lane_id=1)
-    planner.test_frenet_conversion_consistency()
+    # planner.test_frenet_conversion_consistency()
     # planner.debug_sim_frenet_plan_global()
-    # planner.debug_sim_frenet_plan_frenet()
+    planner.debug_sim_frenet_plan_frenet()
 
 
