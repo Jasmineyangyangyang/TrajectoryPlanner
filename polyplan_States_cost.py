@@ -220,7 +220,7 @@ def calc_frenet_paths(csp, s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot, planner_par
         fp.l = [lat_qp.calc_point(t) for t in fp.t]
         fp.l_dot = [lat_qp.calc_first_derivative(t) for t in fp.t]
         fp.l_ddot = [lat_qp.calc_second_derivative(t) for t in fp.t]
-        fp.l_ddddot = [lat_qp.calc_third_derivative(t) for t in fp.t]
+        fp.l_dddot = [lat_qp.calc_third_derivative(t) for t in fp.t]
         fp.lat_param = [l0, l0_dot, l0_ddot, di, Ti]
 
         # Longitudinal motion planning (Velocity keeping)
