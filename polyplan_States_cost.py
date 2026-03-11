@@ -50,8 +50,6 @@ ROBOT_RADIUS = 2.0  # robot radius [m]
 K_J = 0.0
 K_D = 0.0
 K_T = 1.0 - K_J - K_D
-K_LAT = 1.0
-K_LON = K_LAT
 
 # lateral bias configuration (used inside calc_frenet_paths cost)
 # - "curve_in_out_by_KT": use reference curvature sign to define inside/outside of a curve
@@ -202,19 +200,19 @@ def calc_frenet_path(lat_param, lon_param):
     
 def calc_frenet_paths(csp, s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot, planner_param, TARGET_SPEED):
     """# target speed [m/s]"""
-    MAX_JERK_2= 0.5  # maximum jerk error[m/sss]
-    # NOTE：TARGET_SPEED 已经是 m/s，这里全部在 m/s 量纲下归一化
-    MAX_SPEED_2 = (TARGET_SPEED - 40.0 / 3.6) ** 2        # maximum speed error [ (m/s)^2 ]
-    MAX_FRENET_2 = (TARGET_SPEED * 5.0 - 40.0 / 3.6 * 5.0) ** 2  # maximum frenet error [ m^2 ]
+    MAX_JERK = 5.0  # maximum jerk error[m/sss]
+    MAX_ACC = 3.0  # maximum acceleration error [m/ss]
+    max_speed_error = 2 * D_T_S * N_S_SAMPLE  # maximum possible speed error based on sampling range
 
     frenet_paths = []
+    test_cost = []
+
     for di in np.arange(-MAX_ROAD_WIDTH, MAX_ROAD_WIDTH+D_ROAD_W, D_ROAD_W):
     # Lateral motion planning
         Ti = PLAN_T   # acctually you can search different Ti, but that will cost more time
         fp = FrenetPath()
-        LEN_PATH = np.arange(0.0, Ti+DT, DT).shape[0]
 
-        lat_qp = QuinticPolynomial(l0, l0_dot, l0_ddot, di,  Ti)  # 低速时将Ti理解成Si
+        lat_qp = QuinticPolynomial(l0, l0_dot, l0_ddot, di, Ti)  # 低速时将Ti理解成Si
 
         fp.t = [t for t in np.arange(0.0, Ti+DT, DT)]
         fp.l = [lat_qp.calc_point(t) for t in fp.t]
@@ -236,29 +234,9 @@ def calc_frenet_paths(csp, s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot, planner_par
             tfp.s_dddot = [lon_qp.calc_third_derivative(t) for t in fp.t]
             tfp.lon_param = [s0, s0_dot, s0_ddot, tv, Ti]
 
-            Jp = sum(np.power(tfp.l_dddot, 2))  # square of lat jerk
-            Js = sum(np.power(tfp.s_dddot, 2))  # square of lon jerk
-
-            # square of diff from target speed
-            ds = (TARGET_SPEED - tfp.s_dot[-1]) ** 2
-
-            # square of diff from target frenet distance
-            df = (tfp.s[-1]-TARGET_SPEED*Ti)**2
-
-            # tfp.cd = planner_param[0] * Jp + planner_param[1] * tfp.d[-1] ** 2  + (1.0 - planner_param[0] - planner_param[1]) * Ti
-            # tfp.cv = planner_param[0] * Js + planner_param[1] * ds + (1.0 - planner_param[0] - planner_param[1]) * Ti
-
-            # Normalize data to within [-1,1] : 2(x-min)/(max-min)-1
-            Jp = 2 * Jp / (MAX_JERK_2*LEN_PATH) -1
-            Js = 2 * Js / (MAX_JERK_2*LEN_PATH) -1
-            ds = 2 * ds / MAX_SPEED_2 -1 if MAX_SPEED_2 > 1e-3 else ds
-            df = 2 * df / MAX_FRENET_2 -1 if MAX_FRENET_2 > 1e-3 else df
-
-            cdd = 2 * (tfp.l[-1] ** 2) / (MAX_ROAD_WIDTH ** 2) - 1
-            # tfp.cd = planner_param[0] * Jp + planner_param[1] * cdd + (1.0 - planner_param[0] - planner_param[1]) * coffset
-            # tfp.cv = planner_param[0] * Js + planner_param[1] * ds + (1.0 - planner_param[0] - planner_param[1]) * df
-            #NOTE: 
+            # =====================================
             # 将权重限制在 [0,1] 且三者和为 1，方便直接试 [0,1] 组合
+            # =====================================
             KJ = max(0.0, min(1.0, planner_param[0]))  # jerk 权重
             KD = max(0.0, min(1.0, planner_param[1]))  # 终点偏移 / 速度误差 权重
             sum_w = KJ + KD
@@ -266,33 +244,46 @@ def calc_frenet_paths(csp, s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot, planner_par
                 # 如果前两项之和超过 1，则按比例缩放到和为 1
                 KJ /= sum_w
                 KD /= sum_w
-            KT = 1.0 - KJ - KD                           # 剩余权重给时间 / 终点距离
+            KT  = 1.0 - KJ - KD  # 剩余权重给效率
 
-            # 可配置横向偏好项（通过 K_T 控制“向外/向内”或“向左/向右”）
-            # 说明：此处的偏好项本身已归一化到约 [-1,1]，再乘 LATERAL_BIAS_GAIN 调整强度。
-            d_end = tfp.l[-1]
-            if LATERAL_BIAS_MODE == "curve_in_out_by_KT":
-                # “内/外”依据参考线曲率符号定义：
-                # - kappa_ref > 0（左转）：内侧在左(d>0)，外侧在右(d<0)
-                # - kappa_ref < 0（右转）：内侧在右(d<0)，外侧在左(d>0)
-                s_end = tfp.s[-1] if tfp.s[-1] > 0.0 else 0.0
-                kappa_ref = csp.calc_curvature(s_end)
-                if kappa_ref is None:
-                    kappa_ref = 0.0
-                curve_sign = 1.0 if abs(kappa_ref) < CURVATURE_SIGN_EPS else float(np.sign(kappa_ref))
-                inside_metric = d_end * curve_sign  # >0 内侧，<0 外侧
-                bias_term = (1.0 - 2.0 * KT) * (inside_metric / MAX_ROAD_WIDTH)
-            elif LATERAL_BIAS_MODE == "left_right_by_KT":
-                # “左/右”与曲率无关：d>0 为左侧，d<0 为右侧
-                bias_term = (1.0 - 2.0 * KT) * (d_end / MAX_ROAD_WIDTH)
-            else:
-                bias_term = 0.0
+            # =================================================
+            # raw cost
+            # =================================================
+            raw_lat_jerk = sum(np.power(tfp.l_dddot, 2)) * DT  # square of lat jerk
+            raw_lon_jerk = sum(np.power(tfp.s_dddot, 2)) * DT  # square of lon jerk
 
-            tfp.cd = KJ * Jp + KD * cdd + LATERAL_BIAS_GAIN * bias_term
-            tfp.cv = KJ * Js + KD * ds + KT * df
-            tfp.cf = K_LAT * tfp.cd + K_LON * tfp.cv
+            # efficiency cost
+            raw_speed_error = (TARGET_SPEED - tfp.s_dot[-1]) ** 2
+            raw_acc_error = sum(np.power(tfp.s_ddot, 2)) * DT  # square of acceleration error
+
+            # offset from lane center at the end of prediction horizon
+            l_ref = -MAX_ROAD_WIDTH + 2.0 * MAX_ROAD_WIDTH * KD
+            raw_bias_error = abs(tfp.l[-1] - l_ref)
+
+            # progress reward: distance along the path at the end of prediction horizon
+            progress_reward = tfp.s[-1]
+
+            # =================================================
+            # physical normalization
+            # =================================================
+            norm_jerk_cost = (raw_lat_jerk + raw_lon_jerk) / (MAX_JERK ** 2 * Ti)  # normalized jerk cost
+            norm_speed_cost = raw_speed_error / (max_speed_error ** 2)  # normalized speed cost
+            norm_acc_cost = raw_acc_error / (MAX_ACC ** 2 * Ti)  # normalized acceleration cost
+            norm_bias_cost = raw_bias_error / (2*MAX_ROAD_WIDTH)  # normalized offset cost
+            norm_progress_cost = -progress_reward / (TARGET_SPEED * Ti)  # normalized progress cost
+
+            # =====================================
+            # final weighted cost
+            # =====================================
+            # 将权重限制在 [0,1] 且三者和为 1，方便直接试 [0,1] 组合
+            
+
+            tfp.cd = norm_jerk_cost
+            tfp.cv = norm_speed_cost + norm_acc_cost + norm_progress_cost
+            tfp.cf = KJ * tfp.cd + norm_bias_cost + KT * tfp.cv
 
             frenet_paths.append(tfp)
+            test_cost.append(tfp.cd)
 
     return frenet_paths
 
@@ -416,63 +407,6 @@ class Polyplanner():
         nearest_index = np.argmin(distances)
         
         return nearest_index
-
-    # # def calculate_frenet_coordinates(self, x, y, yaw, speed, ax=0.0, ay=0.0):
-    # def cartesian_to_frenet_state(self, x, y, theta, v, a=0.0, kappa=0.0):
-    #     """
-    #     笛卡尔全状态 -> Frenet 全状态（时间导数），对齐你给出的推导。
-    #     输入：(x, y, theta, v, a)，输出：(s, l, s_dot, l_dot, s_ddot, l_ddot)。
-    #     kappa 为车辆当前轨迹曲率；模拟器不提供时传默认 0 即可（等价于假设局部直行，
-    #     加速度仅沿车头切向，无离心项），直道/缓弯下误差很小。
-    #     """
-    #     # 粗寻：找到最近的参考点
-    #     nearest_index = self.find_nearest_point(x, y)
-    #     xr = self.ref_x[nearest_index]
-    #     yr = self.ref_y[nearest_index]
-    #     psi_r = self.ref_psi[nearest_index]
-    #     s_r = self.ref_s[nearest_index]
-
-    #     t_r = np.array([math.cos(psi_r), math.sin(psi_r)])
-    #     n_r = np.array([-math.sin(psi_r), math.cos(psi_r)])
-
-    #     p = np.array([x, y])
-    #     r = np.array([xr, yr])
-    #     v_rel = p - r
-
-    #     l = float(np.dot(v_rel, n_r))
-    #     s = float(s_r + np.dot(v_rel, t_r))
-
-    #     # 2) 插值 κ_r, κ'_r
-    #     kappa_r = float(np.interp(s, self.ref_s, self.ref_kappa))
-    #     kappa_rp = float(np.interp(s, self.ref_s, self.ref_dkappa_ds))
-    #     q1 = 1.0 - kappa_r * l
-    #     q1 = np.clip(q1, 0.2, None)
-
-    #     # 3) 由 v, theta 反解 (s_dot, l_dot)
-    #     delta_psi = math.atan2(math.sin(theta - psi_r), math.cos(theta - psi_r))
-    #     s_dot = v * math.cos(delta_psi) / q1
-    #     l_dot = v * math.sin(delta_psi)
-
-    #     # 4) 由 (v, a, kappa) 得到加速度向量，再投影到参考基底
-    #     t_c = np.array([math.cos(theta), math.sin(theta)])
-    #     n_c = np.array([-math.sin(theta), math.cos(theta)])
-
-    #     a_vec = a * t_c + (v ** 2) * kappa * n_c
-    #     a_t_r = float(np.dot(a_vec, t_r))
-    #     a_n_r = float(np.dot(a_vec, n_r))
-
-    #     # 5) 利用推导式反解 (s_ddot, l_ddot)
-    #     # a_t_r = q1 * s_ddot - κ'_r * l * s_dot^2 - 2 κ_r * s_dot * l_dot
-    #     # a_n_r = q1 * κ_r * s_dot^2 + l_ddot
-    #     s_ddot = (a_t_r + kappa_rp * l * s_dot ** 2 + 2.0 * kappa_r * s_dot * l_dot) / q1
-    #     l_ddot = a_n_r - q1 * kappa_r * s_dot ** 2
-
-    #     # ==== DEBUG CHECK 1: Frenet velocity consistency ====
-    #     v_from_frenet = np.sqrt((s_dot * np.cos(delta_psi))**2 +
-    #                             (l_dot + s_dot * np.sin(delta_psi))**2)
-
-
-    #     return s, l, s_dot, l_dot, s_ddot, l_ddot
 
     def cartesian_to_frenet_state(self, x, y, theta, v, a=0.0, kappa=0.0):
         """
@@ -735,7 +669,7 @@ class Polyplanner():
         ego_a = 0.0
         target_speed = 55.0 / 3.6
         ob = np.array([])
-        param = [0.4, 0.1]
+        param = [0.4, 0.1]  # planner_param: [KJ, KD]
 
         SIM_LOOP = 8000 # simulation loop
 
@@ -779,32 +713,6 @@ class Polyplanner():
             ego_a = path.a[1]
             ego_kappa = path.c[1]
 
-            # #====#
-            # DT_exec = 0.02   # 执行时间步
-
-            # # 1️⃣ 从规划轨迹读取“参考输入”
-            # v_ref = path.speed[1]
-            # a_ref = (path.speed[1] - ego_speed) / DT_exec
-            # kappa_ref = path.c[1]
-
-            # # 2️⃣ 加入执行器一阶滞后（关键）
-            # tau_v = 0.5      # 速度时间常数
-            # tau_k = 0.3      # 转向时间常数
-
-            # ego_a += (a_ref - ego_a) * DT_exec / tau_v
-            # ego_kappa += (kappa_ref - ego_kappa) * DT_exec / tau_k
-
-            # # 3️⃣ 状态积分
-            # ego_speed += ego_a * DT_exec
-            # ego_yaw   += ego_speed * ego_kappa * DT_exec
-            # ego_x     += ego_speed * math.cos(ego_yaw) * DT_exec
-            # ego_y     += ego_speed * math.sin(ego_yaw) * DT_exec
-
-            # ego_a = np.clip(ego_a, -3.0, 3.0)
-            # ego_kappa = np.clip(ego_kappa, -0.3, 0.3)
-            # ego_speed = max(0.0, ego_speed)
-            # #====#
-
             if np.hypot(path.x[1] - self.wx[380], path.y[1] - self.wy[380]) <= 1.0:
                 print("Goal")
                 break
@@ -844,7 +752,7 @@ class Polyplanner():
         ego_a = 0.0
         target_speed = 55.0 / 3.6
         ob = np.array([])
-        param = [0.4, 0.1]
+        param = [0.4, 0.5]
 
         SIM_LOOP = 800 # simulation loop
 
@@ -975,11 +883,172 @@ class Polyplanner():
             print(f"{var:<10} | {expected:>10.4f} | {actual:>10.4f} | {error:>10.4e} {status}")
 
         print("="*50)
+
+    def debug_sim_frenet_plan_params(self):
+        # ==========================================
+        # 1. 初始状态与参数设置
+        # ==========================================
+        ego_x, ego_y = self.tx[0], self.ty[0]
+        ego_speed = 20.0 / 3.6  # [m/s]
+        ego_yaw, ego_kappa = self.tyaw[0], self.tc[0]
+        ego_a = 0.0
+        target_speed = 40.0 / 3.6
+        print("target_speed:", target_speed)
+        print("min speed = ", target_speed - D_T_S * N_S_SAMPLE)
+        ob = np.array([])
+        
+        # 构建参数列表 (当前演示遍历 K_D)
+        # param_list = [[j_i, 1.0] for j_i in np.arange(0, 1.1, 0.1)] #check KJ
+        # param_list = [[j_i, j_i] for j_i in np.arange(0, 1.1, 0.1)] # check KT
+        param_list = [[0.0, d_i] for d_i in np.arange(0, 1.1, 0.1)] # check KD
+        SIM_LOOP = len(param_list)
+
+        # ==========================================
+        # 2. 画布和全局样式配置
+        # ==========================================
+        plt.figure(1)
+        plt.rcParams['xtick.direction'] = 'in'  #将x周的刻度线方向设置向内
+        plt.rcParams['ytick.direction'] = 'in'  #将y轴的刻度方向设置向内
+        plt.rcParams.update({
+            'font.family': ['Times New Roman', 'SimSun'],  # 英文字体为新罗马，中文字体为宋体
+            'font.sans-serif': ['Times New Roman', 'SimSun'],  # 无衬线字体
+            'font.serif': ['Times New Roman', 'SimSun'],  # 衬线字体
+            'mathtext.fontset': 'custom', # 设置Latex字体为用户自定义, mathtext的字体是与font.sans-serif绑定的
+            'mathtext.default': 'rm',  # 设置mathtext的默认字体为Times New Roman
+            # 设置mathtext的无衬线字体为Times New Roman
+            'mathtext.sf': 'Times New Roman',  # 设置mathtext的无衬线字体为Times New Roman
+            'mathtext.rm': 'Times New Roman',  # 设置mathtext的衬线字体为Times New Roman
+            'font.size': 12,  # 五号字
+            'axes.unicode_minus': False,  # 解决负号显示问题
+            'text.usetex': False,
+            'figure.figsize': (3.5, 2.625), #单位是inches, 按IEEE RAL 要求，双栏图片(7.16, 5.37), 单栏图片(3.5, 2.625)
+            'figure.dpi': 600,
+            'axes.grid': True,
+            'grid.linestyle': '--',
+            'grid.alpha': 0.7,
+            'lines.linewidth': 1.0,
+        })
+        ax = plt.gca()
+        ax.set_facecolor("#f5f5f5")
+
+        plt.figure(1)
+        plt.cla()
+        plt.plot(np.linspace(0, 190, 100), np.ones(100)*round(road_width/2, 2), color='#002060', linewidth=1, label='lane Edge')
+        plt.plot(np.linspace(0, 190, 100), np.zeros(100), '--',color='#002060', linewidth=1)
+        plt.plot(np.linspace(0, 190, 100), np.ones(100)*-1*round(road_width/2, 2), color='#002060', linewidth=1)
+
+        plt.plot(np.linspace(0, 190, 100), np.ones(100)*MAX_ROAD_WIDTH, '--', color='#006400',linewidth=1, label='Safety Zone Boundary')
+        plt.plot(np.linspace(0, 190, 100), np.ones(100)*-1*MAX_ROAD_WIDTH, '--', color='#006400', linewidth=1)
+
+        plt.gcf().canvas.mpl_connect(
+                    'key_release_event',
+                    lambda event: [exit(0) if event.key == 'escape' else None])
+
+        for i, planner_param in enumerate(param_list):
+            start = time.time()
+            path = self.poly_trajectory(ego_x, ego_y, ego_speed, planner_param, target_speed,
+                                        ob, ego_yaw=ego_yaw, ego_a=ego_a, ego_kappa=ego_kappa)
+            end = time.time()
+            
+            # 打印当前进度与耗时
+            p_j, p_lat = planner_param[0], planner_param[1]
+            print(f"[{i+1}/{SIM_LOOP}] Param(K_J={p_j:.1f}, P_lat={p_lat:.1f}) | Planning time: {(end - start)*1000:.2f} ms")     
+
+            # 提取图例标签
+            label = f"K_J = {p_j:.1f}, K_D = {p_lat:.1f}"
+            # 绘制当前参数下的轨迹和速度线
+            plt.plot(path.s, path.l, "-", label=label)
+
+            # 实时更新画面 (如果只想看最终结果，可以将此行注释掉，生成速度会极快)
+            plt.pause(0.0001)
+
+        print("Finish!")
+        plt.legend(loc='best', prop={'size': 12})
+        plt.savefig("./figures/polyplanner/States_cost.png", dpi=600, bbox_inches='tight')
+        plt.show()
+
+    def debug_sim_frenet_plan_params_speed(self):
+        # ==========================================
+        # 1. 初始状态与参数设置
+        # ==========================================
+        ego_x, ego_y = self.tx[0], self.ty[0]
+        ego_speed = 20.0 / 3.6  # [m/s]
+        ego_yaw, ego_kappa = self.tyaw[0], self.tc[0]
+        ego_a = 0.0
+        target_speed = 40.0 / 3.6
+        print("target_speed:", target_speed)
+        print("min speed = ", target_speed - D_T_S * N_S_SAMPLE)
+        ob = np.array([])
+        
+        # 构建参数列表 (当前演示遍历 K_J)
+        param_list = [[j_i, 0.5] for j_i in np.arange(0, 1.1, 0.1)] # check KJ and KT
+        SIM_LOOP = len(param_list)
+
+        # ==========================================
+        # 2. 画布和全局样式配置
+        # ==========================================
+        plt.figure(1)
+        plt.rcParams['xtick.direction'] = 'in'  #将x周的刻度线方向设置向内
+        plt.rcParams['ytick.direction'] = 'in'  #将y轴的刻度方向设置向内
+        plt.rcParams.update({
+            'font.family': ['Times New Roman', 'SimSun'],  # 英文字体为新罗马，中文字体为宋体
+            'font.sans-serif': ['Times New Roman', 'SimSun'],  # 无衬线字体
+            'font.serif': ['Times New Roman', 'SimSun'],  # 衬线字体
+            'mathtext.fontset': 'custom', # 设置Latex字体为用户自定义, mathtext的字体是与font.sans-serif绑定的
+            'mathtext.default': 'rm',  # 设置mathtext的默认字体为Times New Roman
+            # 设置mathtext的无衬线字体为Times New Roman
+            'mathtext.sf': 'Times New Roman',  # 设置mathtext的无衬线字体为Times New Roman
+            'mathtext.rm': 'Times New Roman',  # 设置mathtext的衬线字体为Times New Roman
+            'font.size': 12,  # 五号字
+            'axes.unicode_minus': False,  # 解决负号显示问题
+            'text.usetex': False,
+            'figure.figsize': (3.5, 2.625), #单位是inches, 按IEEE RAL 要求，双栏图片(7.16, 5.37), 单栏图片(3.5, 2.625)
+            'figure.dpi': 600,
+            'axes.grid': True,
+            'grid.linestyle': '--',
+            'grid.alpha': 0.7,
+            'lines.linewidth': 1.0,
+        })
+        ax = plt.gca()
+        ax.set_facecolor("#f5f5f5")
+
+        plt.figure(1)
+        plt.cla()
+
+        plt.gcf().canvas.mpl_connect(
+                    'key_release_event',
+                    lambda event: [exit(0) if event.key == 'escape' else None])
+
+        for i, planner_param in enumerate(param_list):
+            start = time.time()
+            path = self.poly_trajectory(ego_x, ego_y, ego_speed, planner_param, target_speed,
+                                        ob, ego_yaw=ego_yaw, ego_a=ego_a, ego_kappa=ego_kappa)
+            end = time.time()
+            
+            # 打印当前进度与耗时
+            p_j, p_lat = planner_param[0], planner_param[1]
+            print(f"[{i+1}/{SIM_LOOP}] Param(K_J={p_j:.1f}, P_lat={p_lat:.1f}) | Planning time: {(end - start)*1000:.2f} ms")     
+
+            if i == 0:
+                plt.plot(path.s, np.ones(len(path.s))*target_speed, "--", color='red', label="Target Speed" if i==0 else None)
+                plt.plot(path.s, np.ones(len(path.s))*(target_speed - D_T_S * N_S_SAMPLE), "--", color='red', label="Min Speed" if i==0 else None)
+            # 提取图例标签
+            label = f"K_J = {p_j:.1f}, K_D = {p_lat:.1f}"
+            plt.plot(path.s, path.speed, "-",label=label)
+
+            # 实时更新画面 (如果只想看最终结果，可以将此行注释掉，生成速度会极快)
+            plt.pause(0.0001)
+
+        print("Finish!")
+        plt.legend(loc='best', prop={'size': 12})
+        plt.savefig("./figures/polyplanner/States_cost.png", dpi=600, bbox_inches='tight')
+        plt.show()
+
 if __name__ == '__main__':
     env_data = natural_road_load()
     planner = Polyplanner(env_data, lane_id=1)
     # planner.test_frenet_conversion_consistency()
     # planner.debug_sim_frenet_plan_global()
-    planner.debug_sim_frenet_plan_frenet()
-
-
+    # planner.debug_sim_frenet_plan_frenet()
+    planner.debug_sim_frenet_plan_params()
+    # planner.debug_sim_frenet_plan_params_speed()
