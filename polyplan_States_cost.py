@@ -244,7 +244,7 @@ def calc_frenet_paths(csp, s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot, planner_par
                 # 如果前两项之和超过 1，则按比例缩放到和为 1
                 KJ /= sum_w
                 KD /= sum_w
-            KT  = 1.0 - KJ - KD  # 剩余权重给效率
+            KT  = max(0.0, 1.0 - KJ - KD)  # 剩余权重给效率
 
             # =================================================
             # raw cost
@@ -305,10 +305,10 @@ def check_collision(fp, ob):
 def check_paths(fplist, ob):
     ok_ind = []
     for i, _ in enumerate(fplist):
-        if any([v > MAX_SPEED for v in fplist[i].s_d]):  # Max speed check
+        if any([v > MAX_SPEED for v in fplist[i].speed]):  # Max speed check
             continue
         elif any([abs(a) > MAX_ACCEL for a in
-                  fplist[i].s_dd]):  # Max accel check
+                  fplist[i].a]):  # Max accel check
             continue
         elif any([abs(c) > MAX_CURVATURE for c in
                   fplist[i].c]):  # Max curvature check
@@ -617,7 +617,7 @@ class Polyplanner():
         # fplist_ok_ind = check_paths(fplist, ob)  # check maximum speed, accel, curvature, collision
         # fplist = [fplist[i] for i in fplist_ok_ind]
         # for i in range(len(fplist)):
-        #     plt.plot(fplist[i].s, fplist[i].d, label=f"{fplist[i].cf:.2f}")
+        #     plt.plot(fplist[i].s, fplist[i].l, label=f"{fplist[i].cf:.2f}")
         #     plt.legend()
         # find minimum cost path id
         min_cost = float("inf")
