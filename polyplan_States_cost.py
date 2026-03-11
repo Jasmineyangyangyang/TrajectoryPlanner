@@ -257,7 +257,8 @@ def calc_frenet_paths(csp, s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot, planner_par
             raw_acc_error = sum(np.power(tfp.s_ddot, 2)) * DT  # square of acceleration error
 
             # offset from lane center at the end of prediction horizon
-            l_ref = -MAX_ROAD_WIDTH + 2.0 * MAX_ROAD_WIDTH * KD
+            # l_ref = -MAX_ROAD_WIDTH + 2.0 * MAX_ROAD_WIDTH * KD
+            l_ref = -MAX_ROAD_WIDTH + 2.0 * MAX_ROAD_WIDTH * (1-KD)
             raw_bias_error = abs(tfp.l[-1] - l_ref)
 
             # progress reward: distance along the path at the end of prediction horizon
@@ -958,6 +959,7 @@ class Polyplanner():
             label = f"K_J = {p_j:.1f}, K_D = {p_lat:.1f}"
             # 绘制当前参数下的轨迹和速度线
             plt.plot(path.s, path.l, "-", label=label)
+            plt.legend(loc='best', prop={'size': 12})
 
             # 实时更新画面 (如果只想看最终结果，可以将此行注释掉，生成速度会极快)
             plt.pause(0.0001)
