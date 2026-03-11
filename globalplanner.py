@@ -4,7 +4,8 @@
 # import matplotlib.pyplot as plt
 
 # for debug
-from polyplan_States import Polyplanner
+# from polyplan_States import Polyplanner
+from polyplan_States_cost import Polyplanner
 from roadplan import Roadplanner
 import matplotlib.pyplot as plt
 from global_road import natural_road_load
@@ -18,8 +19,8 @@ class GlobalPlanner():
         self.road = self.env_data.read_from_csv('./')
         self.ego_lane_id = lane_id
         # self.planner_param_init = [0.0, 1.0] # only x, y;K_J, K_D
-        self.planner_param_init = [0.4, 0.1] # full state K_J, K_D
-        # self.planner_param_init = [40.0/3.6, 0.0] # target_v, target_d
+        # self.planner_param_init = [0.4, 0.1] # full state K_J, K_D
+        self.planner_param_init = [0.5, 0.5] # cost polyplanner K_D and target_speed
 
         self.road_tmp = []
         print("=============Set polyplanner=============")
@@ -316,21 +317,21 @@ class GlobalPlanner():
         # ego_a = 0.0
         # ego_kappa = 0.0
 
-        # # 试验弯道起点 tx[0]
-        # ego_x = 402.1653
-        # ego_y = -243.4126
-        # ego_speed = 35.0 / 3.6  # current speed [m/s]
-        # ego_yaw = 0.0259 # rad
-        # ego_a = 0.0
-        # ego_kappa = 0.0
-
-        # 试验弯道终点 tx[375]本来是idx=380，往前一点
-        ego_x = 569.332
-        ego_y = -303.477
+        # 试验弯道起点 tx[0]
+        ego_x = 402.1653
+        ego_y = -243.4126
         ego_speed = 35.0 / 3.6  # current speed [m/s]
-        ego_yaw = -0.724 # rad
+        ego_yaw = 0.0259 # rad
         ego_a = 0.0
         ego_kappa = 0.0
+
+        # 试验弯道终点 tx[375]本来是idx=380，往前一点
+        # ego_x = 569.332
+        # ego_y = -303.477
+        # ego_speed = 35.0 / 3.6  # current speed [m/s]
+        # ego_yaw = -0.724 # rad
+        # ego_a = 0.0
+        # ego_kappa = 0.0
 
         plan_ego_x = ego_x
         plan_ego_y = ego_y
@@ -423,7 +424,7 @@ class GlobalPlanner():
                         plan_ego_speed = last_path.speed[idx]
                         plan_ego_a = last_path.a[idx]
                         plan_ego_kappa = last_path.c[idx]
-                        if np.hypot(plan_ego_x - ego_x, plan_ego_y - ego_y) > 0.5:
+                        if np.hypot(plan_ego_x - ego_x, plan_ego_y - ego_y) > 1.0:
                             print("Warning: planned point is far from actual position, using current state for planning")
                             plan_ego_x = ego_x
                             plan_ego_y = ego_y
@@ -571,5 +572,4 @@ class GlobalPlanner():
 if __name__ == '__main__':
     road_env = natural_road_load()
     planner = GlobalPlanner(road_env, lane_id=1)
-    # planner.debug_sim()
     planner.debug_sim_simulation(stanley_control_flag=True)

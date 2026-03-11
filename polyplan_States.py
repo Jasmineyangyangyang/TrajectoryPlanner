@@ -844,7 +844,8 @@ class Polyplanner():
         ego_a = 0.0
         target_speed = 55.0 / 3.6
         ob = np.array([])
-        param = [0.4, 0.1]
+        # param = [0.4, 0.1]
+        param = [0.0, 0.5]
 
         SIM_LOOP = 800 # simulation loop
 

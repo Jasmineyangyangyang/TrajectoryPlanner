@@ -753,7 +753,7 @@ class Polyplanner():
         ego_a = 0.0
         target_speed = 55.0 / 3.6
         ob = np.array([])
-        param = [0.4, 0.5]
+        param = [0.5, 0.5]
 
         SIM_LOOP = 800 # simulation loop
 
@@ -820,6 +820,8 @@ class Polyplanner():
 
                 plt.plot(path.s[1:], path.l[1:], "-or", markersize=0.5)
                 plt.plot(path.s[1], path.l[1], "vc")
+
+                plt.title(f"speed = {path.speed[-1]*3.6:.1f} km/h", fontsize=12)
 
                 plt.grid(True)
                 plt.pause(0.0001)
@@ -1051,6 +1053,6 @@ if __name__ == '__main__':
     planner = Polyplanner(env_data, lane_id=1)
     # planner.test_frenet_conversion_consistency()
     # planner.debug_sim_frenet_plan_global()
-    # planner.debug_sim_frenet_plan_frenet()
-    planner.debug_sim_frenet_plan_params()
+    planner.debug_sim_frenet_plan_frenet()
+    # planner.debug_sim_frenet_plan_params()
     # planner.debug_sim_frenet_plan_params_speed()
