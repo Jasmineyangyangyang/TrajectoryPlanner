@@ -670,7 +670,7 @@ class Polyplanner():
         ego_a = 0.0
         target_speed = 55.0 / 3.6
         ob = np.array([])
-        param = [0.4, 0.1]  # planner_param: [KJ, KD]
+        param = [0.4, 0.5]  # planner_param: [KJ, KD]
 
         SIM_LOOP = 8000 # simulation loop
 
@@ -741,7 +741,7 @@ class Polyplanner():
             plt.ylabel("Y/m", fontsize=15)
             plt.title(f"k_J = {param[0]}, K_D = {param[1]}")
             plt.legend(loc='best', prop={'size': 12})
-            plt.pause(0.0001)
+            plt.savefig(f"./figures/polyplanner/frenet_plan_global_kJ{param[0]}_kD{param[1]}.png", bbox_inches='tight')
             plt.show()
     
     def debug_sim_frenet_plan_frenet(self):
@@ -782,6 +782,9 @@ class Polyplanner():
         ax = plt.gca()
         ax.set_facecolor("#f5f5f5")
 
+        road_s = [[0]]
+        offset_error = [[0]]
+
         for i in range(SIM_LOOP):
             planner_param = param
             # path = self.poly_trajectory(ego_x, ego_y, ego_speed, ob)
@@ -797,6 +800,9 @@ class Polyplanner():
             ego_speed = path.speed[1]
             ego_a = path.a[1]
             ego_kappa = path.c[1]
+
+            road_s.append([path.s[1]])
+            offset_error.append([path.l[1]])
 
             if np.hypot(path.x[1] - self.wx[380], path.y[1] - self.wy[380]) <= 1.0:
                 print("Goal")
@@ -819,9 +825,9 @@ class Polyplanner():
 
 
                 plt.plot(path.s[1:], path.l[1:], "-or", markersize=0.5)
-                plt.plot(path.s[1], path.l[1], "vc")
-
-                plt.title(f"speed = {path.speed[-1]*3.6:.1f} km/h", fontsize=12)
+                plt.plot(path.s[1], path.l[1], "vc", label=f"ego, speed = {path.speed[1]*3.6:.1f} km/h")
+                plt.legend(loc='best', prop={'size': 12})
+                # plt.title(f"speed = {path.speed[-1]*3.6:.1f} km/h", fontsize=12)
 
                 plt.grid(True)
                 plt.pause(0.0001)
@@ -831,12 +837,14 @@ class Polyplanner():
 
         print("Finish")
         if self.show_animation:  # pragma: no cover
+            plt.cla()
+            plt.plot(np.array(road_s), np.array(offset_error), 'b')
+            plt.ylim(-0.01, 0.01)
             plt.grid(True)
-            plt.xlabel("S/m", fontsize=15)
-            plt.ylabel("L/m", fontsize=15)
+            plt.xlabel("S /m", fontsize=15)
+            plt.ylabel("Lateral Error /m", fontsize=15)
             plt.title(f"k_J = {param[0]}, K_D = {param[1]}")
-            plt.legend(loc='best', prop={'size': 12})
-            plt.pause(0.0001)
+            plt.savefig("./figures/polyplanner/lateral_error.png")
             plt.show()
 
     def test_frenet_conversion_consistency(self):
@@ -887,7 +895,7 @@ class Polyplanner():
 
         print("="*50)
 
-    def debug_sim_frenet_plan_params(self):
+    def debug_sim_frenet_params_legend(self):
         # ==========================================
         # 1. 初始状态与参数设置
         # ==========================================
@@ -895,7 +903,7 @@ class Polyplanner():
         ego_speed = 20.0 / 3.6  # [m/s]
         ego_yaw, ego_kappa = self.tyaw[0], self.tc[0]
         ego_a = 0.0
-        target_speed = 40.0 / 3.6
+        target_speed = 55.0 / 3.6
         print("target_speed:", target_speed)
         print("min speed = ", target_speed - D_T_S * N_S_SAMPLE)
         ob = np.array([])
@@ -968,7 +976,7 @@ class Polyplanner():
 
         print("Finish!")
         plt.legend(loc='best', prop={'size': 12})
-        plt.savefig("./figures/polyplanner/States_cost.png", dpi=600, bbox_inches='tight')
+        plt.savefig("./figures/polyplanner/frenet_planner_kd.png", dpi=600, bbox_inches='tight')
         plt.show()
 
     def debug_sim_frenet_plan_params_speed(self):
@@ -979,14 +987,12 @@ class Polyplanner():
         ego_speed = 20.0 / 3.6  # [m/s]
         ego_yaw, ego_kappa = self.tyaw[0], self.tc[0]
         ego_a = 0.0
-        target_speed = 40.0 / 3.6
-        print("target_speed:", target_speed)
-        print("min speed = ", target_speed - D_T_S * N_S_SAMPLE)
         ob = np.array([])
         
         # 构建参数列表 (当前演示遍历 K_J)
-        param_list = [[j_i, 0.5] for j_i in np.arange(0, 1.1, 0.1)] # check KJ and KT
-        SIM_LOOP = len(param_list)
+        # param_list = [[j_i, 0.5] for j_i in np.arange(0, 1.1, 0.1)] # check KJ and KT
+        param_list = [[0.0, 0.5], [1.0, 0.5]]
+        target_speeds = [40.0 / 3.6, 45.0 / 3.6, 50.0 / 3.6, 55.0 / 3.6, 60.0 / 3.6]  # 不同目标速度下的表现
 
         # ==========================================
         # 2. 画布和全局样式配置
@@ -1023,36 +1029,31 @@ class Polyplanner():
                     'key_release_event',
                     lambda event: [exit(0) if event.key == 'escape' else None])
 
-        for i, planner_param in enumerate(param_list):
-            start = time.time()
-            path = self.poly_trajectory(ego_x, ego_y, ego_speed, planner_param, target_speed,
-                                        ob, ego_yaw=ego_yaw, ego_a=ego_a, ego_kappa=ego_kappa)
-            end = time.time()
-            
-            # 打印当前进度与耗时
-            p_j, p_lat = planner_param[0], planner_param[1]
-            print(f"[{i+1}/{SIM_LOOP}] Param(K_J={p_j:.1f}, P_lat={p_lat:.1f}) | Planning time: {(end - start)*1000:.2f} ms")     
+        for planner_param in param_list:
+            for target_speed in target_speeds:
+                print("target_speed:", target_speed)
+                print("min speed = ", target_speed - D_T_S * N_S_SAMPLE)
+                path = self.poly_trajectory(ego_x, ego_y, ego_speed, planner_param, target_speed,
+                                            ob, ego_yaw=ego_yaw, ego_a=ego_a, ego_kappa=ego_kappa)
 
-            if i == 0:
-                plt.plot(path.s, np.ones(len(path.s))*target_speed, "--", color='red', label="Target Speed" if i==0 else None)
-                plt.plot(path.s, np.ones(len(path.s))*(target_speed - D_T_S * N_S_SAMPLE), "--", color='red', label="Min Speed" if i==0 else None)
-            # 提取图例标签
-            label = f"K_J = {p_j:.1f}, K_D = {p_lat:.1f}"
-            plt.plot(path.s, path.speed, "-",label=label)
-
-            # 实时更新画面 (如果只想看最终结果，可以将此行注释掉，生成速度会极快)
-            plt.pause(0.0001)
+                # 提取图例标签
+                label = f"target speed = {target_speed:.1f}"
+                plt.plot(path.s, path.speed, "-",label=label)
+                # 实时更新画面 (如果只想看最终结果，可以将此行注释掉，生成速度会极快)
+                plt.pause(0.0001)
 
         print("Finish!")
         plt.legend(loc='best', prop={'size': 12})
-        plt.savefig("./figures/polyplanner/States_cost.png", dpi=600, bbox_inches='tight')
+        plt.xlabel("S /m", fontsize=15)
+        plt.ylabel("Speed m/s", fontsize=15)
+        plt.savefig("./figures/polyplanner/frenet_planner_speed.png", dpi=600, bbox_inches='tight')
         plt.show()
 
 if __name__ == '__main__':
     env_data = natural_road_load()
     planner = Polyplanner(env_data, lane_id=1)
     # planner.test_frenet_conversion_consistency()
-    # planner.debug_sim_frenet_plan_global()
-    planner.debug_sim_frenet_plan_frenet()
-    # planner.debug_sim_frenet_plan_params()
+    planner.debug_sim_frenet_plan_global()
+    # planner.debug_sim_frenet_plan_frenet()
+    # planner.debug_sim_frenet_params_legend()
     # planner.debug_sim_frenet_plan_params_speed()

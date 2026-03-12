@@ -4,8 +4,8 @@
 # import matplotlib.pyplot as plt
 
 # for debug
-# from polyplan_States import Polyplanner
-from polyplan_States_cost import Polyplanner
+# from polyplan_States import Polyplanner  # old [-1, 1]cost, full states coordinate transformation
+from polyplan_States_cost import Polyplanner  # new [0, 1]cost
 from roadplan import Roadplanner
 import matplotlib.pyplot as plt
 from global_road import natural_road_load
