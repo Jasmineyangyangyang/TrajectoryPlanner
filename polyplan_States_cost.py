@@ -200,8 +200,8 @@ def calc_frenet_path(lat_param, lon_param):
     
 def calc_frenet_paths(csp, s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot, planner_param, TARGET_SPEED):
     """# target speed [m/s]"""
-    MAX_JERK = 5.0  # maximum jerk error[m/sss]
-    MAX_ACC = 3.0  # maximum acceleration error [m/ss]
+    MAX_JERK = 2.5  # maximum jerk error[m/sss]
+    MAX_ACC = 2.5  # maximum acceleration error [m/ss]
     max_speed_error = 2 * D_T_S * N_S_SAMPLE  # maximum possible speed error based on sampling range
 
     frenet_paths = []
@@ -249,6 +249,8 @@ def calc_frenet_paths(csp, s0, s0_dot, s0_ddot, l0, l0_dot, l0_ddot, planner_par
             # =================================================
             # raw cost
             # =================================================
+            print(f"max l_dddot: {max(tfp.l_dddot)}, max s_dddot: {max(tfp.s_dddot)}")
+            print(f"max l_ddot: {max(tfp.l_ddot)}, max s_ddot: {max(tfp.s_ddot)}")
             raw_lat_jerk = sum(np.power(tfp.l_dddot, 2)) * DT  # square of lat jerk
             raw_lon_jerk = sum(np.power(tfp.s_dddot, 2)) * DT  # square of lon jerk
 
@@ -668,9 +670,9 @@ class Polyplanner():
         ego_yaw = self.tyaw[0]
         ego_kappa = self.tc[0]
         ego_a = 0.0
-        target_speed = 55.0 / 3.6
+        target_speed = 60.0 / 3.6
         ob = np.array([])
-        param = [0.4, 0.5]  # planner_param: [KJ, KD]
+        param = [0.0, 0.5]  # planner_param: [KJ, KD]
 
         SIM_LOOP = 8000 # simulation loop
 
