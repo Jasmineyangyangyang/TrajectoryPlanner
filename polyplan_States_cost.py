@@ -30,7 +30,7 @@ import time
 
 # Parameter
 MAX_SPEED = 40.0 / 3.6  # maximum speed [m/s]
-MAX_ACCEL = 2.0  # maximum acceleration [m/ss]
+MAX_ACCEL = 2.5  # maximum acceleration [m/ss]
 MAX_CURVATURE = 1.0  # maximum curvature [1/m]
 #----#
 road_width = 3.75 #m
