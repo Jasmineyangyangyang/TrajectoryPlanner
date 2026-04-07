@@ -677,7 +677,8 @@ class Polyplanner():
         ego_a = 0.0
         target_speed = 60.0 / 3.6
         ob = np.array([])
-        param = [0.0, 0.5]  # planner_param: [KJ, KD]
+        # param = [0.0, 0.5]  # planner_param: [KJ, KD]
+        param = [1.0, 1.0]
 
         SIM_LOOP = 8000 # simulation loop
 
@@ -985,7 +986,6 @@ class Polyplanner():
         plt.legend(loc='best', prop={'size': 12})
         plt.savefig("./figures/polyplanner/frenet_planner_kd.png", dpi=600, bbox_inches='tight')
         plt.show()
-
     def debug_sim_frenet_plan_params_speed(self):
         # ==========================================
         # 1. 初始状态与参数设置
@@ -1064,3 +1064,4 @@ if __name__ == '__main__':
     # planner.debug_sim_frenet_plan_frenet()
     planner.debug_sim_frenet_params_legend()
     # planner.debug_sim_frenet_plan_params_speed()
+

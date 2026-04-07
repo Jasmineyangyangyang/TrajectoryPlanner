@@ -9,6 +9,21 @@ import os   # Import the library for operating system functions
 import numpy as np  # Import the library for scientific computing
 import matplotlib.pyplot as plt  # Import the library for plotting
 
+# ==============================================================================
+# 全局图表样式配置 (满足顶刊与博士论文要求)
+# ==============================================================================
+# 优先使用 Times New Roman (英文字母与数字)，遇到中文时自动后退使用 SimSun (宋体)
+plt.rcParams['font.family'] =  ['SimSun'] 
+plt.rcParams['font.sans-serif'] = ['SimSun'] 
+plt.rcParams['font.serif'] = ['SimSun'] 
+# 2. 极其关键：自定义数学公式引擎的字体，强制将其设为 TNR
+plt.rcParams['mathtext.fontset'] = 'custom'
+plt.rcParams['mathtext.rm'] = 'Times New Roman'         # 正体 (如单位) 使用 TNR
+plt.rcParams['mathtext.it'] = 'Times New Roman:italic'  # 斜体 (如变量 v) 使用 TNR 斜体
+plt.rcParams['axes.unicode_minus'] = False # 正常显示负号
+plt.rcParams['font.size'] = 13             # 全局基准字号
+plt.rcParams['xtick.direction'] = 'in'     # X轴刻度线向内
+plt.rcParams['ytick.direction'] = 'in'     # Y轴刻度线向内
 
 class CurveFlag():
     """
@@ -152,18 +167,18 @@ if __name__ == '__main__':
     print(f"bend_start_right_x = {road_right[0,0]}, bend_start_right_y = {road_right[0,1]}")
     print(f"bend_end_left_x = {road_left[380,0]}, bend_end_left_y = {road_left[380,1]}")
     print(f"bend_end_right_x = {road_right[380,0]}, bend_end_right_y = {road_right[380,1]}")
+    
+    '''
     plt.figure(231223)
-    plt.rcParams['xtick.direction'] = 'in'
-    plt.rcParams['ytick.direction'] = 'in'
-    plt.rcParams['font.sans-serif'] = ['Times New Roman']
+    plt.axis('equal')
     plt.plot(road[:, 0], road[:, 1], 'k', label='road')
     plt.plot(road[:, 2], road[:, 3], 'k')
     plt.plot(road[:, 4], road[:, 5], 'k')
-    plt.plot(road_center[:, 0], road_center[:, 1], 'k--', label='road center')
-    plt.plot(road_center[:,0], road_center[:,1], 'bo', markersize=2)
+    plt.plot(road_center[:381, 0], road_center[:381, 1], 'k--', label='ego road center')
+    # plt.plot(road_center[:381,0], road_center[:381,1], 'bo', markersize=2)
     plt.plot(411.5616, -239.2926, 'co', markersize=2, label='adj_pose')
-    plt.plot(456.56, -345.93, 'ro', markersize=2, label='ego_pose')
-
+    plt.plot(402.1653, -243.4126, 'ro', markersize=2, label='ego_pose')
+    
     # 在 road_center[380] 处画一条垂直于道路中心线、长度为 8m 的红线
     idx = 380
     if 1 <= idx < road_center.shape[0]:
@@ -208,11 +223,105 @@ if __name__ == '__main__':
             x2, y2 = x0 - half_len * nx, y0 - half_len * ny
             plt.plot([x1, x2], [y1, y2], 'r-', linewidth=2, label='normal @ idx=0')
 
+    # plt.xlabel('Global X/m')
+    # plt.ylabel('Global Y/m')
+    # plt.xticks(fontproperties='Times New Roman', size=12)
+    # plt.yticks(fontproperties='Times New Roman', size=12)
+    # plt.legend(loc='best', fontsize=11)
+    # plt.grid(True, linestyle='--', alpha=0.6)
+    # plt.savefig('./Figures/global_road.png', dpi=600)  # Save the figure with high resolution
+    # plt.show()
+
+    '''
+
+    # ==============================================================================
+    # 研究路段ROI分割图
+    # ==============================================================================
+    # ==============================================================================
+    # --- 1. 定义顶刊配色 ---
+    color_straight = '#34495E'  # 直线：深邃沥青蓝
+    color_clothoid = '#F39C12'  # 回旋线：学术暗金橙
+    color_curve    = '#8E44AD'  # 定曲率段：典雅紫藤色
+
+    plt.figure(260330)
     plt.axis('equal')
-    plt.xlabel('Global X/m')
-    plt.ylabel('Global Y/m')
-    plt.xticks(fontproperties='Times New Roman', size=10.5)
-    plt.yticks(fontproperties='Times New Roman', size=10.5)
-    plt.legend()
+    plt.plot(road[0:60, 0], road[0:60, 1], color=color_straight, label='道路边界')
+    plt.plot(road[60:140, 0], road[60:140, 1], color=color_clothoid)
+    plt.plot(road[140:240, 0], road[140:240, 1], color=color_curve)
+    plt.plot(road[240:320, 0], road[240:320, 1], color=color_clothoid)
+    plt.plot(road[320:380, 0], road[320:380, 1], color=color_straight)
+    plt.plot(road[380:405, 0], road[380:405, 1], 'gray')
+
+    plt.plot(road[0:60, 2], road[0:60, 3], color=color_straight)
+    plt.plot(road[60:140, 2], road[60:140, 3], color=color_clothoid)
+    plt.plot(road[140:240, 2], road[140:240, 3], color=color_curve)
+    plt.plot(road[240:320, 2], road[240:320, 3], color=color_clothoid)
+    plt.plot(road[320:380, 2], road[320:380, 3], color=color_straight)
+    plt.plot(road[380:405, 2], road[380:405, 3], 'gray')
+
+    plt.plot(road[:405, 4], road[:405, 5], 'gray', linestyle='-.', label='道路中心线')
+    if ego_lane_id == 0:
+        adj_center_x = (road[:,2] + road[:,4]) / 2.0
+        adj_center_y = (road[:,3] + road[:,5]) / 2.0
+        plt.plot(adj_center_x[17:400], adj_center_y[17:400], '-', linewidth=1.0, label='邻车路径')
+    else:
+        adj_center_x = (road[:,0] + road[:,4]) / 2.0
+        adj_center_y = (road[:,1] + road[:,5]) / 2.0
+        plt.plot(adj_center_x[17:400], adj_center_y[17:400], '--', linewidth=1.0, label='邻车路径')
+    plt.plot(road_center[:381, 0], road_center[:381, 1], 'k--', linewidth=1.1, label='自车车道中心线')
+    plt.plot(411.5616, -239.2926, 'co', markersize=2, label='邻车示意点')
+    plt.plot(402.1653, -243.4126, 'ro', markersize=2, label='自车示意点')
+
+    # idx = 380
+    idx = 360
+    if 1 <= idx < road_center.shape[0]:
+        # 用相邻点估计切向方向
+        if idx == road_center.shape[0] - 1:
+            dx = road_center[idx, 0] - road_center[idx - 1, 0]
+            dy = road_center[idx, 1] - road_center[idx - 1, 1]
+        else:
+            dx = road_center[idx + 1, 0] - road_center[idx - 1, 0]
+            dy = road_center[idx + 1, 1] - road_center[idx - 1, 1]
+        # 法向方向（单位向量）
+        norm = np.hypot(dx, dy)
+        if norm > 0.0:
+            nx = -dy / norm
+            ny = dx / norm
+            half_len = 8.0  # 一半 4m，总长 8m
+            x0, y0 = road[idx, 4], road[idx, 5]
+            x1, y1 = x0 + half_len * nx, y0 + half_len * ny
+            x2, y2 = x0 - half_len * nx, y0 - half_len * ny
+            plt.plot([x1, x2], [y1, y2], 'r-', linewidth=1.0, label='试验弯道截面')
+    
+    # idx = 0
+    idx = 20
+    if 0 <= idx < road_center.shape[0]:
+        # 用相邻点估计切向方向
+        if idx == road_center.shape[0] - 1:
+            dx = road_center[idx, 0] - road_center[idx - 1, 0]
+            dy = road_center[idx, 1] - road_center[idx - 1, 1]
+        elif idx == 0:
+            dx = road_center[idx + 1, 0] - road_center[idx, 0]
+            dy = road_center[idx + 1, 1] - road_center[idx, 1]
+        else:
+            dx = road_center[idx + 1, 0] - road_center[idx - 1, 0]
+            dy = road_center[idx + 1, 1] - road_center[idx - 1, 1]
+        # 法向方向（单位向量）
+        norm = np.hypot(dx, dy)
+        if norm > 0.0:
+            nx = -dy / norm
+            ny = dx / norm
+            half_len = 8.0  # 一半 4m，总长 8m
+            x0, y0 = road[idx, 4], road[idx, 5]
+            x1, y1 = x0 + half_len * nx, y0 + half_len * ny
+            x2, y2 = x0 - half_len * nx, y0 - half_len * ny
+            plt.plot([x1, x2], [y1, y2], 'r-', linewidth=1.0)
+    
+    plt.xlabel('全局 X/m', fontsize=15)
+    plt.ylabel('全局 Y/m', fontsize=15)
+    plt.legend(loc='best', fontsize=13)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.tight_layout() 
+    plt.savefig('./Figures/bend_road.png', dpi=600)  # Save the figure with high resolution
     plt.show()
-   
+
