@@ -317,8 +317,8 @@ if __name__ == '__main__':
             x2, y2 = x0 - half_len * nx, y0 - half_len * ny
             plt.plot([x1, x2], [y1, y2], 'r-', linewidth=1.0)
     
-    plt.xlabel('全局 X/m', fontsize=15)
-    plt.ylabel('全局 Y/m', fontsize=15)
+    plt.xlabel('全局坐标 $X$$\mathrm{/m}$', fontsize=15)
+    plt.ylabel('全局坐标 $Y$$\mathrm{/m}$', fontsize=15)
     plt.legend(loc='best', fontsize=13)
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.tight_layout() 

@@ -678,7 +678,7 @@ class Polyplanner():
         target_speed = 60.0 / 3.6
         ob = np.array([])
         # param = [0.0, 0.5]  # planner_param: [KJ, KD]
-        param = [1.0, 1.0]
+        param = [0.0, 1.0]
 
         SIM_LOOP = 8000 # simulation loop
 
@@ -707,6 +707,7 @@ class Polyplanner():
         ax = plt.gca()
         ax.set_facecolor("#f5f5f5")
 
+        ego_trajectory = []
         for i in range(SIM_LOOP):
             planner_param = param
             # path = self.poly_trajectory(ego_x, ego_y, ego_speed, ob)
@@ -721,6 +722,7 @@ class Polyplanner():
             ego_speed += (path.speed[1] - ego_speed) * 0.2
             ego_a = path.a[1]
             ego_kappa = path.c[1]
+            ego_trajectory.append([ego_x, ego_y, ego_yaw, ego_speed, ego_a, ego_kappa])
 
             if np.hypot(path.x[1] - self.wx[380], path.y[1] - self.wy[380]) <= 1.0:
                 print("Goal")
@@ -743,8 +745,10 @@ class Polyplanner():
                     lambda event: [exit(0) if event.key == 'escape' else None])
 
         print("Finish")
+        ego_trajectory = np.array(ego_trajectory)
         if self.show_animation:  # pragma: no cover
             plt.grid(True)
+            plt.plot(ego_trajectory[:,0], ego_trajectory[:,1], "-r",marker='o', markersize=0.5, label='Ego Trajectory')
             plt.xlabel("X/m", fontsize=15)
             plt.ylabel("Y/m", fontsize=15)
             plt.title(f"k_J = {param[0]}, K_D = {param[1]}")
@@ -761,7 +765,8 @@ class Polyplanner():
         ego_a = 0.0
         target_speed = 55.0 / 3.6
         ob = np.array([])
-        param = [0.5, 0.5]
+        # param = [0.0, 0.5]
+        param = [0.2, 1.0]
 
         SIM_LOOP = 800 # simulation loop
 
@@ -1062,6 +1067,47 @@ if __name__ == '__main__':
     # planner.test_frenet_conversion_consistency()
     # planner.debug_sim_frenet_plan_global()
     # planner.debug_sim_frenet_plan_frenet()
-    planner.debug_sim_frenet_params_legend()
+    # planner.debug_sim_frenet_params_legend()
     # planner.debug_sim_frenet_plan_params_speed()
+
+        # ==============================================================================
+    # 全局图表样式配置 (满足顶刊与博士论文要求)
+    # ==============================================================================
+    # 优先使用 Times New Roman (英文字母与数字)，遇到中文时自动后退使用 SimSun (宋体)
+    plt.rcParams['font.family'] =  ['SimSun'] 
+    plt.rcParams['font.sans-serif'] = ['SimSun'] 
+    plt.rcParams['font.serif'] = ['SimSun'] 
+    # 2. 极其关键：自定义数学公式引擎的字体，强制将其设为 TNR
+    plt.rcParams['mathtext.fontset'] = 'custom'
+    plt.rcParams['mathtext.rm'] = 'Times New Roman'         # 正体 (如单位) 使用 TNR
+    plt.rcParams['mathtext.it'] = 'Times New Roman:italic'  # 斜体 (如变量 v) 使用 TNR 斜体
+    plt.rcParams['axes.unicode_minus'] = False # 正常显示负号
+    plt.rcParams['font.size'] = 13             # 全局基准字号
+    plt.rcParams['xtick.direction'] = 'in'     # X轴刻度线向内
+    plt.rcParams['ytick.direction'] = 'in'     # Y轴刻度线向内
+    # ==============================================================================
+    # 研究路段曲率图
+    # ==============================================================================
+    # --- 1. 定义顶刊配色 ---
+    color_straight = '#34495E'  # 直线：深邃沥青蓝
+    color_clothoid = '#F39C12'  # 回旋线：学术暗金橙
+    color_curve    = '#8E44AD'  # 定曲率段：典雅紫藤色
+
+    plt.figure(2603302)
+    plt.plot(planner.ts[:300], planner.tc[:300], color=color_straight, label='直线段曲率')
+    plt.plot(planner.ts[300:700], planner.tc[300:700], color=color_clothoid, label='回旋线段曲率')
+    plt.plot(planner.ts[700:1200], planner.tc[700:1200], color=color_curve, label='定曲率段曲率')
+    plt.plot(planner.ts[1200:1600], planner.tc[1200:1600], color=color_clothoid)
+    plt.plot(planner.ts[1600:1870], planner.tc[1600:1870], color=color_straight)
+    plt.plot(planner.ts[1870:1900], np.array(planner.tc[1870:1900])* 0.0, color=color_straight)
+    plt.xlim(0, 200)
+    plt.ylim(-0.01, 0.002)
+    plt.xlabel('纵向距离 $s\mathrm{/m}$', fontsize=15)
+    plt.ylabel('曲率 $\mathrm{\kappa}\mathrm{/(m^{-1})}$', fontsize=15)
+    plt.legend(loc='best', fontsize=13)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.tight_layout()  # 放在最后，自动调整所有间距
+    plt.savefig('./Figures/bend_road_curvature.png', dpi=600)  # Save the figure with high resolution
+    plt.show()
+
 

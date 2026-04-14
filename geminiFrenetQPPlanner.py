@@ -15,7 +15,7 @@ plt.rcParams['font.sans-serif'] = ['SimSun', 'Songti SC']
 plt.rcParams['axes.unicode_minus'] = False 
 plt.rcParams['xtick.direction'] = 'in'     
 plt.rcParams['ytick.direction'] = 'in'     
-plt.rcParams['font.size'] = 12             
+plt.rcParams['font.size'] = 14             # 稍微调大了一点字号，图例更清晰
 plt.rcParams['mathtext.fontset'] = 'custom'
 plt.rcParams['mathtext.rm'] = 'Times New Roman'
 
@@ -38,7 +38,7 @@ class natural_road_load():
         return False
 
 # ==============================================================================
-# 2. Frenet QP 多模态规划器 (升级：支持早/晚切弯轨迹逻辑)
+# 2. Frenet QP 多模态规划器 (完美复现自然驾驶聚类特征)
 # ==============================================================================
 class FrenetQP_ApexPlanner:
     def __init__(self):
@@ -55,13 +55,13 @@ class FrenetQP_ApexPlanner:
         for i in range(N-3): L3[i, i], L3[i, i+1], L3[i, i+2], L3[i, i+3] = -1.0, 3.0, -3.0, 1.0
         return L1, L2, L3
 
-    def plan(self, road_s, is_in_curve_flags, mode='out_in_out'):
+    def plan(self, road_s, is_in_curve_flags, mode='cluster_1'):
         N = len(road_s)
         W_ref = np.ones(N) * 0.0  
         D_ref = np.zeros(N)
         
         curve_indices = np.where(is_in_curve_flags)[0]
-        actual_apex_idx = None # 用于记录实际设置的弯心位置以便返回画图
+        actual_apex_idx = None # 用于记录实际设置的特征点位置以便返回画图
         
         if len(curve_indices) > 0:
             idx_start, idx_end = curve_indices[0], curve_indices[-1]
@@ -70,35 +70,37 @@ class FrenetQP_ApexPlanner:
             # 放开弯道内的刚性追踪
             W_ref[idx_start:idx_end+1] = 0.0 
             
-            # 统一定义内外侧的横向目标值
-            d_out = -0.5  # 外抛深度
-            d_in = 0.6    # 切弯深度
-            
             # ---------------------------------------------------------
-            # 核心逻辑：通过平移 idx_apex 来实现不同的赛道走线
+            # 核心参数整定：复现右转弯道的 4 类驾驶行为
+            # (注意：左侧为正 d>0，右侧内弯为负 d<0)
             # ---------------------------------------------------------
-            if mode == 'out_in_out':
-                # 几何最优线：弯心位于几何中点
+            if mode == 'cluster_1':
+                # 第一类：深切弯与内侧贴合 (Aggressive Inner)
+                actual_apex_idx = idx_geom_apex + 10 # 极值点稍微靠后
+                W_ref[idx_start], D_ref[idx_start] = 300.0, 0.05
+                W_ref[actual_apex_idx], D_ref[actual_apex_idx] = 1000.0, -0.45 # 深切弯心
+                W_ref[idx_end], D_ref[idx_end] = 800.0, -0.25 # 出弯保持在内侧，慵懒回正
+                
+            elif mode == 'cluster_2':
+                # 第二类：保守中心跟随 (Conservative Center)
                 actual_apex_idx = idx_geom_apex
-                W_ref[idx_start], D_ref[idx_start] = 500.0, d_out
-                W_ref[actual_apex_idx], D_ref[actual_apex_idx] = 1000.0, d_in
-                W_ref[idx_end], D_ref[idx_end] = 500.0, d_out
+                W_ref[idx_start], D_ref[idx_start] = 800.0, 0.0
+                W_ref[actual_apex_idx], D_ref[actual_apex_idx] = 800.0, 0.05 # 弯心略微偏外侧
+                W_ref[idx_end], D_ref[idx_end] = 800.0, 0.0
                 
-            elif mode == 'early_apex':
-                # 早切弯：弯心提前 25m
-                actual_apex_idx = idx_geom_apex - 25
-                W_ref[idx_start], D_ref[idx_start] = 800.0, d_out
-                W_ref[actual_apex_idx], D_ref[actual_apex_idx] = 1000.0, d_in
-                # 早切弯往往导致出弯推头外抛更严重，设定一个更靠外的目标
-                W_ref[idx_end], D_ref[idx_end] = 500.0, -0.7 
+            elif mode == 'cluster_3':
+                # 第三类：弯中外抛 (Outer-Deviating)
+                actual_apex_idx = idx_geom_apex + 5
+                W_ref[idx_start], D_ref[idx_start] = 500.0, 0.0
+                W_ref[actual_apex_idx], D_ref[actual_apex_idx] = 800.0, 0.35 # 弯心出现明显的正值外抛
+                W_ref[idx_end], D_ref[idx_end] = 500.0, 0.0
                 
-            elif mode == 'late_apex':
-                # 晚切弯：弯心延后 25m
-                actual_apex_idx = idx_geom_apex + 25
-                # 入弯在外侧保持更久，可以加重入弯点的约束
-                W_ref[idx_start], D_ref[idx_start] = 1000.0, d_out
-                W_ref[actual_apex_idx], D_ref[actual_apex_idx] = 1000.0, d_in
-                W_ref[idx_end], D_ref[idx_end] = 500.0, d_out 
+            elif mode == 'cluster_4':
+                # 第四类：典型外内外与早切弯 (Early Apex Out-In-Out)
+                actual_apex_idx = idx_geom_apex - 15 # 特征点：明显的早弯心
+                W_ref[idx_start], D_ref[idx_start] = 500.0, 0.25 # 借外侧空间入弯
+                W_ref[actual_apex_idx], D_ref[actual_apex_idx] = 1000.0, -0.4 # 极早切入内侧
+                W_ref[idx_end], D_ref[idx_end] = 500.0, 0.3 # 出弯向外侧甩出
 
         # 构造求解矩阵
         L1, L2, L3 = self.generate_derivative_matrices(N)
@@ -113,11 +115,13 @@ class FrenetQP_ApexPlanner:
         l_d = np.ones(N) * -0.8
         u_d = np.ones(N) * 0.8
         
+        # [修改点] 为了让第一类和第四类在进出弯有足够的距离平滑过渡，
+        # 将直线居中约束的生效位置拉远到弯道边界外 20 米处。
         if len(curve_indices) > 0:
-            l_d[:idx_start-5] = 0.0
-            u_d[:idx_start-5] = 0.0
-            l_d[idx_end+5:] = 0.0
-            u_d[idx_end+5:] = 0.0
+            l_d[:max(0, idx_start-20)] = 0.0
+            u_d[:max(0, idx_start-20)] = 0.0
+            l_d[min(N, idx_end+20):] = 0.0
+            u_d[min(N, idx_end+20):] = 0.0
 
         A_dl = sparse.csc_matrix(L1)
         l_dl = np.ones(N-1) * -0.5
@@ -158,42 +162,44 @@ if __name__ == '__main__':
     ax = fig.add_subplot(111)
 
     # 绘制基础车道线
-    ax.plot(road_s, np.zeros_like(road_s), 'k-', linewidth=1.0, alpha=0.5, label='车道中心线')
+    ax.plot(road_s, np.zeros_like(road_s), 'k-', linewidth=1.5, alpha=0.5, label='车道中心线')
     ax.plot(road_s, np.ones_like(road_s)*0.8, 'k--', linewidth=1.5, alpha=0.5, label='安全边界')
     ax.plot(road_s, np.ones_like(road_s)*(-0.8), 'k--', linewidth=1.5, alpha=0.5)
     
-    # 定义需要生成的三种轨迹配置
+    # 重新定义的 4 种聚类轨迹配置
     modes = [
-        {'id': 'out_in_out', 'name': '外内外 (几何最优)', 'color': '#27AE60'}, # 绿色
-        {'id': 'early_apex', 'name': '早切弯 (Early Apex)', 'color': '#C0392B'}, # 红色
-        {'id': 'late_apex',  'name': '晚切弯 (Late Apex)',  'color': '#2980B9'}  # 蓝色
+        {'id': 'cluster_1', 'name': '(a) 第一类：深切弯', 'color': '#27AE60'}, # 绿色
+        {'id': 'cluster_2', 'name': '(b) 第二类：中心跟随', 'color': '#2980B9'}, # 蓝色
+        {'id': 'cluster_3', 'name': '(c) 第三类：弯中外抛', 'color': '#F39C12'}, # 橙色
+        {'id': 'cluster_4', 'name': '(d) 第四类：早切与外内外', 'color': '#C0392B'}  # 红色
     ]
     
     for m in modes:
         d_opt, apex_idx = planner.plan(road_s, curve_flags, mode=m['id'])
         
         # 绘制整条轨迹线
-        ax.plot(road_s, d_opt, color=m['color'], linestyle='-', linewidth=2.5, label=m['name'])
+        ax.plot(road_s, d_opt, color=m['color'], linestyle='-', linewidth=3.0, label=m['name'])
         
-        # 在轨迹上用醒目的五角星标出 "弯心 (Apex)" 的位置
+        # 在轨迹上用醒目的五角星标出极值点/控制点的位置
         if apex_idx is not None:
             ax.plot(road_s[apex_idx], d_opt[apex_idx], marker='*', color=m['color'], 
-                    markersize=15, markeredgecolor='black', markeredgewidth=0.5)
+                    markersize=18, markeredgecolor='black', markeredgewidth=1.0)
     
     # ROI 分界线
     ax.axvline(s_roi_start, color='gray', linestyle='-.', linewidth=1.2)
     ax.axvline(s_roi_end, color='gray', linestyle='-.', linewidth=1.2)
     
     # 标签与排版
-    ax.set_xlabel("纵向距离 $\mathrm{s/m}$", fontsize=20, labelpad=10)
-    ax.set_ylabel("横向偏移量 $\mathrm{d/m}$", fontsize=20, labelpad=10)
+    ax.set_xlabel("纵向距离 $s \mathrm{/m}$", fontsize=20, labelpad=10)
+    ax.set_ylabel("横向偏移量 $d \mathrm{/m}$", fontsize=20, labelpad=10)
     ax.set_xlim(road_s[0], road_s[-1]) 
     ax.set_ylim(-1.0, 1.0) 
 
-    # 优化图例排版，去掉边框
-    ax.legend(loc='lower center', bbox_to_anchor=(0.5, 1.02), ncol=4, 
+    # 采用 2x2 或 1x4 均可，这里使用 1x4 放最上面
+    ax.legend(loc='lower center', bbox_to_anchor=(0.5, 1.02), ncol=3, 
               fontsize=16, frameon=False)
     
     ax.grid(True, linestyle='--', alpha=0.4)
     plt.tight_layout()
+    # fig.savefig('four_clusters_qp_simulation.png', dpi=600, bbox_inches='tight')
     plt.show()

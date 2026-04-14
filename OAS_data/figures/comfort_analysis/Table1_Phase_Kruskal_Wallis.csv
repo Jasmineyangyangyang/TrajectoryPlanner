@@ -1,0 +1,13 @@
+Phase,Indicator,H statistic,p-value
+Entry,max_abs_d_ddot,20.848,0.00011319618135071608
+Entry,max_abs_d_dddot,21.566,8.028268238849992e-05
+Entry,max_abs_s_ddot,2.787,0.42571173443462884
+Entry,max_abs_s_dddot,5.713,0.1264510574821501
+Corner,max_abs_d_ddot,2.177,0.5365289564839446
+Corner,max_abs_d_dddot,1.712,0.6342496973102769
+Corner,max_abs_s_ddot,15.423,0.0014884624601550678
+Corner,max_abs_s_dddot,16.223,0.0010207526462790364
+Exit,max_abs_d_ddot,6.525,0.08867621976634904
+Exit,max_abs_d_dddot,17.677,0.0005126549295351567
+Exit,max_abs_s_ddot,9.105,0.027927459342239273
+Exit,max_abs_s_dddot,6.644,0.08416419371013512

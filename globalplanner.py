@@ -18,9 +18,9 @@ class GlobalPlanner():
         self.env_data = road_env    # road environment
         self.road = self.env_data.read_from_csv('./')
         self.ego_lane_id = lane_id
-        # self.planner_param_init = [0.0, 1.0] # only x, y;K_J, K_D
-        # self.planner_param_init = [0.4, 0.1] # full state K_J, K_D
-        self.planner_param_init = [0.5, 0.5] # cost polyplanner K_D and target_speed
+        # self.planner_param_init = [0.0, 0.5] # center line
+        # self.planner_param_init = [0.0, 1.0] # inner
+        self.planner_param_init = [0.2, 1.0] # inner
 
         self.road_tmp = []
         print("=============Set polyplanner=============")
