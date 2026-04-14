@@ -677,8 +677,9 @@ class Polyplanner():
         ego_a = 0.0
         target_speed = 60.0 / 3.6
         ob = np.array([])
-        # param = [0.0, 0.5]  # planner_param: [KJ, KD]
-        param = [0.0, 1.0]
+        # param = [0.0, 0.5]  # center line
+        # param = [0.0, 1.0] # innner offset
+        param = [0.0, 0.0] # outer offset
 
         SIM_LOOP = 8000 # simulation loop
 
@@ -1107,7 +1108,7 @@ if __name__ == '__main__':
     plt.legend(loc='best', fontsize=13)
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.tight_layout()  # 放在最后，自动调整所有间距
-    plt.savefig('./Figures/bend_road_curvature.png', dpi=600)  # Save the figure with high resolution
+    # plt.savefig('./Figures/bend_road_curvature.png', dpi=600)  # Save the figure with high resolution
     plt.show()
 
 
